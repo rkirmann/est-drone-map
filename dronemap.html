@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Maa-amet Height & Wind Explorer</title>
+    <!-- Load Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <!-- Load Tailwind -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body,
+        html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            font-family: sans-serif;
+            overflow: hidden;
+        }
+
+        #map {
+            width: 100%;
+            height: 100%;
+            background-color: #e5e7eb;
+            cursor: crosshair;
+        }
+
+        input[type=range] {
+            -webkit-appearance: none;
+            width: 100%;
+            background: transparent;
+        }
+
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 16px;
+            width: 16px;
+            border-radius: 50%;
+            background: #3b82f6;
+            cursor: pointer;
+            margin-top: -6px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+        }
+
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            cursor: pointer;
+            background: #cbd5e1;
+            border-radius: 2px;
+        }
+
+        .height-gradient {
+            background: linear-gradient(to right, rgba(0, 0, 0, 0), #84cc00, #ffea00, #ff7b00, #ff0000, #800000);
+        }
+
+        .loading {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: #475569;
+            font-style: italic;
+            font-size: 14px;
+        }
+
+        .spinner {
+            border: 2px solid #e2e8f0;
+            border-top: 2px solid #3b82f6;
+            border-radius: 50%;
+            width: 16px;
+            height: 16px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        .floating-controls {
+            position: absolute;
+            top: 1rem;
+            right: 1rem;
+            z-index: 1000;
+            max-width: 260px;
+        }
+
+        .wind-arrow {
+            display: inline-block;
+            transition: transform 0.5s ease;
+            font-weight: bold;
+            font-size: 14px;
+        }
+
+        .locate-button {
+            background: white;
+            width: 34px;
+            height: 34px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            border-radius: 4px;
+            box-shadow: 0 1px 5px rgba(0, 0, 0, 0.4);
+            border: 2px solid rgba(0, 0, 0, 0.2);
+            background-clip: padding-box;
+        }
+
+        .locate-button:hover {
+            background: #f4f4f4;
+            color: #3b82f6;
+        }
+
+        .locate-button svg {
+            color: #444;
+        }
+
+        .locate-button:active svg {
+            color: #3b82f6;
+        }
+    </style>
+</head>
+
+<body class="h-screen w-screen relative">
+
+    <!-- Floating Controls Panel -->
+    <div
+        class="floating-controls bg-slate-900/90 backdrop-blur text-white p-3 rounded-xl border border-slate-700 shadow-2xl">
+        <label for="opacitySlider"
+            class="block text-[10px] font-bold text-slate-300 mb-1 flex justify-between uppercase tracking-wider">
+            <span>nDSM Opacity</span>
+            <span id="opacityValue">75%</span>
+        </label>
+        <input type="range" id="opacitySlider" min="0" max="100" value="75" class="mb-3 block w-full">
+
+        <div class="space-y-2 border-t border-slate-700 pt-2">
+            <div class="flex items-center gap-2">
+                <input type="checkbox" id="powerGridToggle" class="w-4 h-4 cursor-pointer accent-blue-500">
+                <label for="powerGridToggle"
+                    class="text-[10px] font-bold text-amber-400 cursor-pointer uppercase tracking-tight">⚡ Power Grid &
+                    Towers</label>
+            </div>
+
+            <div class="flex items-center gap-2">
+                <input type="checkbox" id="eansToggle" class="w-4 h-4 cursor-pointer accent-red-500">
+                <label for="eansToggle"
+                    class="text-[10px] font-bold text-red-400 cursor-pointer uppercase tracking-tight">🚫 UTM EANS</label>
+            </div>
+        </div>
+    </div>
+
+    <!-- Map Container -->
+    <div id="map"></div>
+
+    <!-- Visual Legend -->
+    <div
+        class="absolute bottom-6 left-1/2 transform -translate-x-1/2 z-[1000] bg-white/95 backdrop-blur px-4 py-2 rounded-lg shadow-xl border border-slate-300 pointer-events-none min-w-[300px]">
+        <div class="text-[10px] font-bold text-slate-700 mb-1 text-center uppercase tracking-wider">Visual Tree &
+            Powerline Height</div>
+        <div class="h-3 w-full rounded height-gradient border border-slate-300"></div>
+        <div class="flex justify-between text-[10px] font-bold text-slate-600 mt-1">
+            <span>0m</span><span>~5m</span><span>~15m</span><span>~25m</span><span>35m+</span>
+        </div>
+    </div>
+
+    <!-- Leaflet & Proj4 -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.2/proj4.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4leaflet/1.0.2/proj4leaflet.min.js"></script>
+
+    <script>
+        const estCRS = new L.Proj.CRS('EPSG:3301',
+            '+proj=lcc +lat_1=59.33333333333334 +lat_2=58 +lat_0=57.51755393055556 +lon_0=24 +x_0=500000 +y_0=6375000 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs', {
+            resolutions: [4000, 2000, 1000, 500, 250, 125, 62.5, 31.25, 15.625, 7.8125, 3.90625, 1.953125, 0.9765625, 0.48828125, 0.244140625, 0.1220703125],
+            origin: [40500, 5993000],
+            bounds: L.bounds([40500, 5993000], [1064500, 7017000])
+        });
+
+        const map = L.map('map', {
+            crs: estCRS,
+            continuousWorld: true,
+            zoomControl: true
+        }).setView([58.4034, 24.6655], 14);
+
+        const locationControl = L.control({ position: 'topleft' });
+        locationControl.onAdd = function () {
+            const container = L.DomUtil.create('div', 'leaflet-bar leaflet-control');
+            const button = L.DomUtil.create('a', 'locate-button', container);
+            button.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="3"></circle><line x1="12" y1="2" x2="12" y2="4"></line><line x1="12" y1="20" x2="12" y2="22"></line><line x1="2" y1="12" x2="4" y2="12"></line><line x1="20" y1="12" x2="22" y2="12"></line></svg>`;
+            button.title = "Find my location";
+
+            L.DomEvent.on(button, 'click', function (e) {
+                L.DomEvent.stopPropagation(e);
+                L.DomEvent.preventDefault(e);
+
+                if (!window.isSecureContext) {
+                    L.popup()
+                        .setLatLng(map.getCenter())
+                        .setContent('<div class="p-3 text-red-600 text-xs font-bold leading-tight">🚫 <b>Security Block:</b> Browsers require an HTTPS connection to use GPS. This preview environment may be restricted.</div>')
+                        .openOn(map);
+                    return;
+                }
+
+                map.locate({ setView: true, maxZoom: 16 });
+            });
+            return container;
+        };
+        locationControl.addTo(map);
+
+        L.tileLayer.wms('https://kaart.maaamet.ee/wms/fotokaart', { layers: 'EESTIFOTO', format: 'image/jpeg', attribution: '&copy; Maa-amet' }).addTo(map);
+        const heightLayer = L.tileLayer.wms('https://kaart.maaamet.ee/wms/fotokaart', { layers: 'nDSM', format: 'image/png', transparent: true, opacity: 0.75 }).addTo(map);
+        const powerGridLayer = L.tileLayer.wms('https://gsavalik.envir.ee/geoserver/etak/wms', { layers: 'etak:e_601_elektriliin_j,etak:e_402_korgrajatis_p,etak:e_602_tehnopaigaldis_p', format: 'image/png', transparent: true, zIndex: 10 });
+        const eansLayer = L.layerGroup();
+
+        let userMarker = null;
+        map.on('locationfound', (e) => {
+            if (userMarker) map.removeLayer(userMarker);
+            userMarker = L.circleMarker(e.latlng, {
+                radius: 9, fillColor: "#3b82f6", color: "#fff", weight: 3, opacity: 1, fillOpacity: 0.9
+            }).addTo(map).bindPopup("You are here").openPopup();
+        });
+
+        map.on('locationerror', (e) => {
+            let msg = 'GPS Access Denied. Check browser permissions.';
+            if (!window.isSecureContext) msg = 'Security Block: HTTPS required for GPS.';
+            L.popup().setLatLng(map.getCenter()).setContent(`<div class="p-2 text-red-600 text-xs font-bold">${msg}</div>`).openOn(map);
+        });
+
+        document.getElementById('opacitySlider').addEventListener('input', e => {
+            document.getElementById('opacityValue').innerText = e.target.value + '%';
+            heightLayer.setOpacity(e.target.value / 100);
+        });
+
+        document.getElementById('powerGridToggle').addEventListener('change', e => {
+            if (e.target.checked) powerGridLayer.addTo(map);
+            else map.removeLayer(powerGridLayer);
+        });
+
+        async function getWindData(lat, lng) {
+            try {
+                const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=wind_speed_10m,wind_gusts_10m,wind_direction_10m&hourly=wind_speed_80m,wind_direction_80m,wind_speed_120m,wind_direction_120m&wind_speed_unit=kmh&forecast_days=1`;
+                const res = await fetch(url);
+                const data = await res.json();
+                const nowIso = new Date().toISOString().substring(0, 13) + ":00";
+                let idx = data.hourly.time.indexOf(nowIso);
+                if (idx === -1) idx = new Date().getHours();
+                const s80 = data.hourly.wind_speed_80m[idx];
+                const s120 = data.hourly.wind_speed_120m[idx];
+                return {
+                    gnd: { speed: data.current.wind_speed_10m, gust: data.current.wind_gusts_10m, dir: data.current.wind_direction_10m },
+                    h80: { speed: s80, gust: Math.round(s80 * 1.4), dir: data.hourly.wind_direction_80m[idx] },
+                    h120: { speed: s120, gust: Math.round(s120 * 1.4), dir: data.hourly.wind_direction_120m[idx] }
+                };
+            } catch (e) { return null; }
+        }
+
+        document.getElementById('eansToggle').addEventListener('change', async e => {
+            if (e.target.checked) {
+                eansLayer.addTo(map);
+                if (eansLayer.getLayers().length === 0) {
+                    const loadingPopup = L.popup().setLatLng(map.getCenter()).setContent('<div class="loading p-2"><div class="spinner"></div><span>Downloading Zones...</span></div>').openOn(map);
+                    // Open CORS for this API usually so we don't need a proxy, but let's use it just in case like before.
+                    const url = 'https://utm.eans.ee/avm/utm/uas.geojson';
+                    // We'll try directly first since it's a public API that often supports CORS. If it fails, fallback to proxy.
+                    try {
+                        let data;
+                        try {
+                            const res = await fetch(url);
+                            data = await res.json();
+                        } catch (directErr) {
+                            const proxy = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
+                            const res = await fetch(proxy);
+                            const wrap = await res.json();
+                            data = JSON.parse(wrap.contents);
+                        }
+
+                        L.geoJSON(data, {
+                            filter: function (feature) {
+                                const ignoredZones = ['Outside Estonia', 'EEGZS1', 'INFO'];
+                                return !ignoredZones.includes(feature.properties.name || feature.properties.identifier || '');
+                            },
+                            style: function (feature) {
+                                return {
+                                    color: "#ef4444",
+                                    weight: 2,
+                                    fillColor: "#ef4444",
+                                    fillOpacity: 0.15,
+                                    dashArray: '5, 5',
+                                    interactive: false // Let map clicks pass through to the terrain/main popup
+                                };
+                            },
+                            onEachFeature: function (feature, layer) {
+                                const props = feature.properties;
+                                const name = props.name || props.identifier || 'Zone';
+                                let message = props.message || '';
+                                if (!message && props.extendedProperties && props.extendedProperties.localizedMessages) {
+                                    const enMsg = props.extendedProperties.localizedMessages.find(m => m.language === 'en-GB') || props.extendedProperties.localizedMessages[0];
+                                    if (enMsg) message = enMsg.message;
+                                }
+
+                                let content = `<div class="text-xs p-1">
+                                    <b class="uppercase">${name}</b> - <span class="text-[10px] text-slate-500">${props.type || ''}</span>
+                                    <hr class="my-1 border-slate-200">
+                                    <div class="mb-1"><b class="text-slate-700">Restriction:</b> ${props.restriction || 'None'}</div>
+                                    ${props.lower || props.upper ? `<div class="mb-1"><b class="text-slate-700">Limits:</b> ${props.lower || 'SFC'} - ${props.upper || 'UNL'}</div>` : ''}
+                                    ${props.reason ? `<div class="mb-1"><b class="text-slate-700">Reason:</b> ${props.reason}</div>` : ''}
+                                    ${message ? `<p class="max-h-32 overflow-y-auto whitespace-pre-wrap mt-2 bg-slate-50 p-1 border border-slate-100 rounded text-slate-700">${message}</p>` : ''}
+                                </div>`;
+                                layer.featureContent = content; // Store the HTML content on the layer instead of binding popup
+                            }
+                        }).addTo(eansLayer);
+                    } catch (err) {
+                        console.error('Error loading geojson:', err);
+                    }
+                    map.closePopup(loadingPopup);
+                }
+            } else map.removeLayer(eansLayer);
+        });
+
+        // Simple Ray-Casting PIP algorithm for Leaflet polygons
+        function pointInPolygon(point, vs) {
+            let x = point[0], y = point[1];
+            let inside = false;
+            for (let i = 0, j = vs.length - 1; i < vs.length; j = i++) {
+                let xi = vs[i][0], yi = vs[i][1];
+                let xj = vs[j][0], yj = vs[j][1];
+                let intersect = ((yi > y) != (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+                if (intersect) inside = !inside;
+            }
+            return inside;
+        }
+
+        function getActiveZones(latlng) {
+            let activeHtml = '';
+            eansLayer.eachLayer(layer => {
+                if (layer instanceof L.Polygon) {
+                    const latlngs = layer.getLatLngs()[0]; // MultiPolygons might need deeper iteration but this works for simple Polys
+                    const vs = latlngs.map(ll => [ll.lat, ll.lng]);
+                    if (pointInPolygon([latlng.lat, latlng.lng], vs)) {
+                        activeHtml += layer.featureContent || '';
+                    }
+                } else if (layer instanceof L.GeoJSON) {
+                    layer.eachLayer(subLayer => {
+                        if (subLayer instanceof L.Polygon) {
+                            // Check deeply for MultiPolygons
+                            const parts = subLayer.getLatLngs();
+                            let isInside = false;
+
+                            // It's usually nested arrays for polygons/multipolygons in Leaflet
+                            const checkPart = (part) => {
+                                if (part.length > 0 && part[0] instanceof L.LatLng) {
+                                    const vs = part.map(ll => [ll.lat, ll.lng]);
+                                    if (pointInPolygon([latlng.lat, latlng.lng], vs)) isInside = true;
+                                } else {
+                                    for (let i = 0; i < part.length; i++) checkPart(part[i]);
+                                }
+                            }
+                            checkPart(parts);
+
+                            if (isInside && subLayer.featureContent) activeHtml += subLayer.featureContent;
+                        }
+                    });
+                }
+            });
+            return activeHtml ? `<div class="mt-3 pt-2 border-t border-slate-200"><b class="text-sm text-slate-800 block mb-2 font-bold uppercase">Flight Zones</b>${activeHtml}</div>` : '';
+        }
+
+        map.on('click', async function (e) {
+            const popup = L.popup({ minWidth: 260 }).setLatLng(e.latlng).setContent('<div class="loading p-2"><div class="spinner"></div><span>Querying Data...</span></div>').openOn(map);
+            const p3301 = estCRS.project(e.latlng);
+            const buffer = 4;
+            const bbox = `${p3301.x - buffer},${p3301.y - buffer},${p3301.x + buffer},${p3301.y + buffer}`;
+            const layers = [
+                'etak:e_401_hoone_ka', 'etak:e_402_korgrajatis_p',
+                'etak:e_403_muu_rajatis_ka', 'etak:e_601_elektriliin_j',
+                'etak:e_602_tehnopaigaldis_p'
+            ].join(',');
+
+            const wfsUrl = `https://gsavalik.envir.ee/geoserver/etak/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=${layers}&outputFormat=application/json&srsName=EPSG:3301&bbox=${bbox}`;
+
+            const [dbRes, wind] = await Promise.all([
+                fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(wfsUrl)}`).then(r => r.json()).then(j => JSON.parse(j.contents)).catch(() => null),
+                getWindData(e.latlng.lat, e.latlng.lng)
+            ]);
+
+            const zonesHtml = getActiveZones(e.latlng);
+
+            let feature = (dbRes && dbRes.features && dbRes.features.length > 0) ? dbRes.features[0].properties : null;
+
+            let windHtml = wind ? `
+            <div class="mt-3 pt-2 border-t border-slate-200">
+                <b class="text-[10px] text-slate-500 uppercase block mb-2 tracking-widest text-center">Wind & Gusts (km/h)</b>
+                <div class="grid grid-cols-3 gap-1 text-center">
+                    <div class="bg-slate-50 p-1 rounded border border-slate-100">
+                        <div class="text-[9px] font-bold text-slate-400">10m</div>
+                        <div class="text-xs font-bold text-slate-700">${Math.round(wind.gnd.speed)}<small class="text-[8px] ml-0.5 opacity-60">(${Math.round(wind.gnd.gust)})</small></div>
+                        <div class="wind-arrow text-blue-500" style="transform: rotate(${wind.gnd.dir}deg)">↓</div>
+                    </div>
+                    <div class="bg-blue-50 p-1 rounded border border-blue-100">
+                        <div class="text-[9px] font-bold text-blue-400">80m</div>
+                        <div class="text-xs font-bold text-blue-700">${Math.round(wind.h80.speed)}<small class="text-[8px] ml-0.5 opacity-60">(${Math.round(wind.h80.gust)})</small></div>
+                        <div class="wind-arrow text-blue-600" style="transform: rotate(${wind.h80.dir}deg)">↓</div>
+                    </div>
+                    <div class="bg-indigo-50 p-1 rounded border border-indigo-100">
+                        <div class="text-[9px] font-bold text-indigo-400">120m</div>
+                        <div class="text-xs font-bold text-indigo-700">${Math.round(wind.h120.speed)}<small class="text-[8px] ml-0.5 opacity-60">(${Math.round(wind.h120.gust)})</small></div>
+                        <div class="wind-arrow text-indigo-600" style="transform: rotate(${wind.h120.dir}deg)">↓</div>
+                    </div>
+                </div>
+            </div>
+        ` : '';
+
+            const droneMapBtn = `<div class="mt-3 pt-2 border-t border-slate-200 flex gap-2">
+            <a href="https://utm.eans.ee/" target="_blank" class="flex-1 text-center bg-slate-800 text-white text-[9px] font-bold py-1.5 rounded uppercase tracking-tighter shadow">Drone Map</a>
+        </div>`;
+
+            if (feature) {
+                let height = feature.korgus_m || feature.korgus || feature.suhteline_korgus || feature.absoluutne_korgus;
+                const voltage = feature.nimipinge;
+                const typeName = feature.tyyp_tekst || feature.nimetus || (voltage ? "Elektriliin" : "Object");
+
+                // ESTIMATE CALCULATOR: Calculate tower height and clearance based on voltage if height is missing
+                let estimatedInfo = '';
+                if (voltage && !height) {
+                    const v = parseInt(voltage);
+                    if (v >= 110) {
+                        height = 25; // Estimated tower height
+                        estimatedInfo = `<div class="text-[10px] text-amber-600 italic">Clearance estimate: ~10m</div>`;
+                    } else if (v >= 10) {
+                        height = 12; // Estimated tower height
+                        estimatedInfo = `<div class="text-[10px] text-amber-600 italic">Clearance estimate: ~7m</div>`;
+                    } else {
+                        height = 8; // Estimated pole height
+                        estimatedInfo = `<div class="text-[10px] text-amber-600 italic">Clearance estimate: ~5m</div>`;
+                    }
+                }
+
+                popup.setContent(`
+                <div class="p-1 max-h-[70vh] overflow-y-auto">
+                    <b class="text-slate-800 text-sm border-b border-slate-200 block pb-1 mb-2 capitalize font-bold">${typeName}</b>
+                    ${height ? `<div class="flex justify-between items-center mb-1 gap-4 text-xs"><span>Tower Height:</span><span class="text-green-600 font-bold text-lg">~${height} m</span></div>` : ''}
+                    ${voltage ? `<div class="flex justify-between items-center mb-1 gap-4 text-xs"><span>Voltage:</span><span class="text-amber-500 font-bold">${voltage} kV</span></div>` : ''}
+                    ${estimatedInfo}
+                    ${zonesHtml}
+                    ${windHtml}
+                    ${droneMapBtn}
+                </div>
+            `);
+            } else {
+                popup.setContent(`
+                <div class="p-1 max-h-[70vh] overflow-y-auto">
+                    <b class="text-slate-800 text-sm border-b border-slate-200 block pb-1 mb-2 font-bold">Terrain / Environment</b>
+                    <p class="text-[10px] text-slate-500 italic mb-2">No registered building found here.</p>
+                    ${zonesHtml}
+                    ${windHtml}
+                    ${droneMapBtn}
+                </div>
+            `);
+            }
+        });
+    </script>
+</body>
+
+</html>
