@@ -150,7 +150,15 @@
             <div class="flex items-center gap-2">
                 <input type="checkbox" id="eansToggle" class="w-4 h-4 cursor-pointer accent-red-500">
                 <label for="eansToggle"
-                    class="text-[10px] font-bold text-red-400 cursor-pointer uppercase tracking-tight">🚫 UTM EANS</label>
+                    class="text-[10px] font-bold text-red-400 cursor-pointer uppercase tracking-tight">🚫 UTM
+                    EANS</label>
+            </div>
+
+            <div class="flex items-center gap-2">
+                <input type="checkbox" id="buildingsToggle" class="w-4 h-4 cursor-pointer accent-green-500">
+                <label for="buildingsToggle"
+                    class="text-[10px] font-bold text-green-400 cursor-pointer uppercase tracking-tight">🏢 Buildings
+                    (Z15+)</label>
             </div>
         </div>
     </div>
@@ -322,6 +330,85 @@
                 }
             } else map.removeLayer(eansLayer);
         });
+
+        const buildingsLayer = L.layerGroup();
+        let currentBuildingsBbox = '';
+
+        function updateBuildings() {
+            if (!map.hasLayer(buildingsLayer)) return;
+            if (map.getZoom() < 10) {
+                buildingsLayer.clearLayers();
+                currentBuildingsBbox = '';
+                return;
+            }
+
+            const bounds = map.getBounds();
+            const p1 = estCRS.project(bounds.getSouthWest());
+            const p2 = estCRS.project(bounds.getNorthEast());
+
+            // Buffer the bbox slightly so we don't fetch on every tiny pan
+            const buffer = 500;
+            const bboxStr = `${p1.x - buffer},${p1.y - buffer},${p2.x + buffer},${p2.y + buffer}`;
+
+            // If the map panned but is still contained within our last fetched bbox, skip fetching
+            if (currentBuildingsBbox === bboxStr) return; // very simplistic caching
+            currentBuildingsBbox = bboxStr;
+
+            const url = `https://gsavalik.envir.ee/geoserver/etak/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=etak:e_401_hoone_ka,etak:e_402_korgrajatis_p&outputFormat=application/json&srsName=EPSG:3301&bbox=${bboxStr}`;
+
+            fetch(url).then(r => r.json()).then(data => {
+                if (!map.hasLayer(buildingsLayer) || currentBuildingsBbox !== bboxStr) return;
+                buildingsLayer.clearLayers();
+
+                L.geoJSON(data, {
+                    coordsToLatLng: function (coords) {
+                        return estCRS.unproject(L.point(coords[0], coords[1]));
+                    },
+                    style: function (feature) {
+                        const props = feature.properties;
+                        let h = props.korgus_m || props.korgus || props.suhteline_korgus || props.absoluutne_korgus || 0;
+                        if (!h && props.nimipinge) {
+                            const v = parseInt(props.nimipinge);
+                            if (v >= 110) h = 25; else if (v >= 10) h = 12; else h = 8;
+                        }
+
+                        let color = '#84cc00'; // 0-5m
+                        if (h > 35) color = '#800000';
+                        else if (h > 25) color = '#ff0000';
+                        else if (h > 15) color = '#ff7b00';
+                        else if (h > 5) color = '#ffea00';
+
+                        return {
+                            color: color,
+                            weight: 1,
+                            fillColor: color,
+                            fillOpacity: 0.7,
+                            interactive: false // Let map clicks go through to the main popup query
+                        };
+                    },
+                    pointToLayer: function (feature, latlng) {
+                        return L.circleMarker(latlng, {
+                            radius: 6,
+                            color: "#ffffff",
+                            weight: 1,
+                            fillOpacity: 0.9
+                        });
+                    }
+                }).addTo(buildingsLayer);
+            }).catch(e => console.error("Error fetching buildings WFS:", e));
+        }
+
+        document.getElementById('buildingsToggle').addEventListener('change', e => {
+            if (e.target.checked) {
+                buildingsLayer.addTo(map);
+                updateBuildings();
+            } else {
+                map.removeLayer(buildingsLayer);
+                buildingsLayer.clearLayers();
+            }
+        });
+
+        map.on('moveend', updateBuildings);
 
         // Simple Ray-Casting PIP algorithm for Leaflet polygons
         function pointInPolygon(point, vs) {
