@@ -223,7 +223,7 @@
 
         L.tileLayer.wms('https://kaart.maaamet.ee/wms/fotokaart', { layers: 'EESTIFOTO', format: 'image/jpeg', attribution: '&copy; Maa-amet' }).addTo(map);
         const heightLayer = L.tileLayer.wms('https://kaart.maaamet.ee/wms/fotokaart', { layers: 'nDSM', format: 'image/png', transparent: true, opacity: 0.75 }).addTo(map);
-        const powerGridLayer = L.tileLayer.wms('https://gsavalik.envir.ee/geoserver/etak/wms', { layers: 'etak:e_601_elektriliin_j,etak:e_402_korgrajatis_p,etak:e_602_tehnopaigaldis_p', format: 'image/png', transparent: true, zIndex: 10 });
+        const powerGridLayer = L.layerGroup();
         const eansLayer = L.layerGroup();
 
         let userMarker = null;
@@ -245,9 +245,83 @@
             heightLayer.setOpacity(e.target.value / 100);
         });
 
+        let currentPowerGridBbox = '';
+        function updatePowerGrid() {
+            if (!map.hasLayer(powerGridLayer)) return;
+            if (map.getZoom() < 10) {
+                powerGridLayer.clearLayers();
+                currentPowerGridBbox = '';
+                return;
+            }
+
+            const bounds = map.getBounds();
+            const p1 = estCRS.project(bounds.getSouthWest());
+            const p2 = estCRS.project(bounds.getNorthEast());
+            const buffer = 500;
+            const bboxStr = `${p1.x - buffer},${p1.y - buffer},${p2.x + buffer},${p2.y + buffer}`;
+
+            if (currentPowerGridBbox === bboxStr) return;
+            currentPowerGridBbox = bboxStr;
+
+            const url = `https://gsavalik.envir.ee/geoserver/etak/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=etak:e_601_elektriliin_j,etak:e_602_tehnopaigaldis_p&outputFormat=application/json&srsName=EPSG:3301&bbox=${bboxStr}`;
+
+            fetch(url).then(r => r.json()).then(data => {
+                if (!map.hasLayer(powerGridLayer) || currentPowerGridBbox !== bboxStr) return;
+                powerGridLayer.clearLayers();
+
+                L.geoJSON(data, {
+                    coordsToLatLng: function (coords) {
+                        return estCRS.unproject(L.point(coords[0], coords[1]));
+                    },
+                    style: function (feature) {
+                        const props = feature.properties;
+                        let h = 8; // Default low voltage ~5m clearance = 8m pole
+                        if (props.nimipinge) {
+                            const v = parseInt(props.nimipinge);
+                            if (v >= 330) h = 35; // Elering backbone 330kV
+                            else if (v >= 110) h = 25; // Elering 110kV
+                            else if (v >= 10) h = 12; // Elektrilevi medium
+                        }
+
+                        let color = '#84cc00'; // 0-5m (< 10kV basically)
+                        if (h > 35) color = '#800000';
+                        else if (h >= 35) color = '#ff0000'; // 330kV ~35m red
+                        else if (h >= 25) color = '#ff7b00'; // 110kV ~25m orange
+                        else if (h >= 12) color = '#ffea00'; // 10kV ~12m yellow
+
+                        return {
+                            color: color,
+                            weight: props.kood === 601 ? 2 : 1, // Thicker lines for wires
+                            fillColor: color,
+                            fillOpacity: 0.8,
+                            interactive: false
+                        };
+                    },
+                    pointToLayer: function (feature, latlng) {
+                        return L.circleMarker(latlng, {
+                            radius: 4,
+                            color: "#ffffff",
+                            weight: 1,
+                            fillOpacity: 0.9
+                        });
+                    }
+                }).addTo(powerGridLayer);
+            }).catch(e => console.error("Error fetching powerGrid WFS:", e));
+        }
+
         document.getElementById('powerGridToggle').addEventListener('change', e => {
-            if (e.target.checked) powerGridLayer.addTo(map);
-            else map.removeLayer(powerGridLayer);
+            if (e.target.checked) {
+                powerGridLayer.addTo(map);
+                updatePowerGrid();
+            } else {
+                map.removeLayer(powerGridLayer);
+                powerGridLayer.clearLayers();
+            }
+        });
+
+        map.on('moveend', () => {
+            updateBuildings();
+            updatePowerGrid();
         });
 
         async function getWindData(lat, lng) {
@@ -408,7 +482,7 @@
             }
         });
 
-        map.on('moveend', updateBuildings);
+
 
         // Simple Ray-Casting PIP algorithm for Leaflet polygons
         function pointInPolygon(point, vs) {
@@ -516,7 +590,10 @@
                 let estimatedInfo = '';
                 if (voltage && !height) {
                     const v = parseInt(voltage);
-                    if (v >= 110) {
+                    if (v >= 330) {
+                        height = 35;
+                        estimatedInfo = `<div class="text-[10px] text-amber-600 italic">Clearance estimate: ~15m</div>`;
+                    } else if (v >= 110) {
                         height = 25; // Estimated tower height
                         estimatedInfo = `<div class="text-[10px] text-amber-600 italic">Clearance estimate: ~10m</div>`;
                     } else if (v >= 10) {
