@@ -717,18 +717,9 @@
                     const loadingPopup = L.popup().setLatLng(map.getCenter()).setContent('<div class="loading p-2"><div class="spinner"></div><span>Downloading Zones...</span></div>').openOn(map);
                     // Open CORS for this API usually so we don't need a proxy, but let's use it just in case like before.
                     const url = 'https://utm.eans.ee/avm/utm/uas.geojson';
-                    // We'll try directly first since it's a public API that often supports CORS. If it fails, fallback to proxy.
                     try {
-                        let data;
-                        try {
-                            const res = await fetch(url);
-                            data = await res.json();
-                        } catch (directErr) {
-                            const proxy = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
-                            const res = await fetch(proxy);
-                            const wrap = await res.json();
-                            data = JSON.parse(wrap.contents);
-                        }
+                        const res = await fetch(url);
+                        const data = await res.json();
 
                         L.geoJSON(data, {
                             filter: function (feature) {
@@ -954,7 +945,7 @@
                 const wfsUrl = `https://gsavalik.envir.ee/geoserver/etak/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=${layers}&outputFormat=application/json&srsName=EPSG:3301&bbox=${bbox}`;
 
                 [dbRes, wind] = await Promise.all([
-                    fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(wfsUrl)}`).then(r => r.json()).then(j => JSON.parse(j.contents)).catch(() => null),
+                    fetch(wfsUrl).then(r => r.json()).catch(() => null),
                     getWindData(latlng.lat, latlng.lng)
                 ]);
                 feature = (dbRes && dbRes.features && dbRes.features.length > 0) ? dbRes.features[0].properties : null;
