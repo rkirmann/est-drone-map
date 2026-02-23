@@ -206,7 +206,7 @@
 
             L.DomEvent.disableClickPropagation(container);
 
-            L.DomEvent.on(button, 'click', function (e) {
+            L.DomEvent.on(button, 'click', async function (e) {
                 L.DomEvent.stopPropagation(e);
                 L.DomEvent.preventDefault(e);
 
@@ -218,8 +218,22 @@
                     return;
                 }
 
+                try {
+                    if (navigator.permissions && navigator.permissions.query) {
+                        const perm = await navigator.permissions.query({ name: 'geolocation' });
+                        if (perm.state === 'prompt') {
+                            // Show a friendly message just before the native prompt appears
+                            L.popup()
+                                .setLatLng(map.getCenter())
+                                .setContent('<div class="p-3 text-slate-700 text-xs font-bold leading-tight">📍 Please "Allow" location access when prompted by your browser.</div>')
+                                .openOn(map);
+                        }
+                    }
+                } catch (e) { /* ignore if permissions API is unsupported */ }
+
                 // Manually flyTo in locationfound to guarantee 'moveend' triggers perfectly
-                map.locate({ setView: false });
+                // Increased timeout for mobile devices which can be slow to get a GPS lock
+                map.locate({ setView: false, timeout: 15000, enableHighAccuracy: true });
             });
             return container;
         };
@@ -232,6 +246,7 @@
 
         let userMarker = null;
         map.on('locationfound', (e) => {
+            map.closePopup(); // Close the generic "please allow" prompt if it was shown
             if (userMarker) map.removeLayer(userMarker);
             userMarker = L.circleMarker(e.latlng, {
                 radius: 9, fillColor: "#3b82f6", color: "#fff", weight: 3, opacity: 1, fillOpacity: 0.9
@@ -242,9 +257,19 @@
         });
 
         map.on('locationerror', (e) => {
-            let msg = 'GPS Access Denied. Check browser permissions.';
-            if (!window.isSecureContext) msg = 'Security Block: HTTPS required for GPS.';
-            L.popup().setLatLng(map.getCenter()).setContent(`<div class="p-2 text-red-600 text-xs font-bold">${msg}</div>`).openOn(map);
+            let msg = "Could not access your location.";
+            if (e.code === 1) { // PERMISSION_DENIED
+                msg = `<b>Location Access Denied</b><br><br>Please allow location access in your browser settings (often found by tapping the lock icon in the URL bar), then try again.`;
+            } else if (e.code === 2) { // POSITION_UNAVAILABLE
+                msg = `<b>Location Unavailable</b><br><br>Your device's GPS signal is weak or unavailable.`;
+            } else if (e.code === 3) { // TIMEOUT
+                msg = `<b>Location Timeout</b><br><br>It took too long to get a GPS signal. Make sure you have a clear view of the sky.`;
+            }
+
+            L.popup()
+                .setLatLng(map.getCenter())
+                .setContent(`<div class="p-3 text-red-600 text-xs leading-tight">${msg}</div>`)
+                .openOn(map);
         });
 
         document.getElementById('opacitySlider').addEventListener('input', e => {
