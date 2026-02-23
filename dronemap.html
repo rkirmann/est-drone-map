@@ -170,6 +170,79 @@
         </div>
     </div>
 
+    <!-- Mission Planner Panel -->
+    <div id="missionPanel"
+        class="floating-controls bg-slate-900/90 backdrop-blur text-white p-4 rounded-xl border border-slate-700 shadow-2xl transition-all duration-300 pointer-events-auto"
+        style="top: auto; bottom: 1rem; right: 1rem; width: 300px; transform: translateY(0);">
+
+        <div class="flex justify-between items-center mb-3">
+            <h3 class="text-sm font-bold text-slate-100 uppercase tracking-wider flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                    class="text-blue-400">
+                    <path
+                        d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.2-1.1.6L3 8l6 5-4 4-2.5-.5-1.5 1.5 3.5 2 2 3.5 1.5-1.5-.5-2.5 4-4 5 6l1.2-.7c.4-.2.7-.6.6-1.1z" />
+                </svg>
+                Mission Planner
+            </h3>
+            <label class="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" id="missionToggle" class="sr-only peer">
+                <div
+                    class="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-500">
+                </div>
+            </label>
+        </div>
+
+        <div id="missionControls" class="space-y-3 hidden opacity-0 transition-opacity duration-300">
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-tight mb-1">Max Flight
+                        Time (min)</label>
+                    <input type="number" id="missionMaxTime" value="30" min="5"
+                        class="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-blue-500">
+                </div>
+                <div>
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-tight mb-1">Target
+                        Height (m)</label>
+                    <input type="number" id="missionHeight" value="60" min="10" max="120"
+                        class="w-full bg-slate-800 border border-slate-600 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-blue-500">
+                </div>
+            </div>
+
+            <div class="bg-slate-800/50 rounded p-3 border border-slate-700">
+                <div class="flex justify-between text-xs mb-1">
+                    <span class="text-slate-400">Total Distance:</span>
+                    <span id="statDistance" class="font-bold">0 m</span>
+                </div>
+                <div class="flex justify-between text-xs mb-1">
+                    <span class="text-slate-400">Est. Flight Time:</span>
+                    <span id="statTime" class="font-bold">0:00</span>
+                </div>
+                <div class="flex justify-between text-xs pt-1 border-t border-slate-700 mt-1">
+                    <span class="text-slate-300 font-bold">Time Remaining:</span>
+                    <span id="statRemaining" class="font-bold text-blue-400">30:00</span>
+                </div>
+            </div>
+
+            <div class="flex gap-2">
+                <button id="btnReturnHome"
+                    class="flex-1 bg-slate-700 hover:bg-slate-600 text-[10px] font-bold uppercase tracking-wider py-2 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled>
+                    Return to Home
+                </button>
+                <button id="btnClearMission"
+                    class="bg-red-900/50 hover:bg-red-900/80 text-red-200 text-[10px] font-bold uppercase tracking-wider py-2 px-3 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled>
+                    Clear
+                </button>
+            </div>
+
+            <div id="missionStatus" class="text-[10px] text-amber-400 italic text-center leading-tight">
+                Click the map to set Home Point.
+            </div>
+        </div>
+    </div>
+
     <!-- Leaflet & Proj4 -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.2/proj4.min.js"></script>
@@ -247,6 +320,241 @@
 
             // Fly to the location and ensure zoom is at least 14 so that buildings/powerlines load
             map.flyTo(e.latlng, Math.max(map.getZoom(), 14), { duration: 1.5 });
+        });
+
+        // --- MISSION PLANNER STATE ---
+        let isMissionMode = false;
+        let waypoints = [];             // Array of { latlng, windData, legDistance, legTime }
+        let missionPolyline = null;
+        const missionLayerGroup = L.layerGroup().addTo(map);
+
+        // Drone Performance Constants
+        const DRONE_CRUISE_SPEED = 10;  // m/s (~36km/h)
+        const DRONE_CLIMB_SPEED = 3;    // m/s
+        const DRONE_DESCENT_SPEED = 2;  // m/s
+
+        const uiMissionToggle = document.getElementById('missionToggle');
+        const uiMissionControls = document.getElementById('missionControls');
+        const uiMaxTime = document.getElementById('missionMaxTime');
+        const uiHeight = document.getElementById('missionHeight');
+        const uiStatDist = document.getElementById('statDistance');
+        const uiStatTime = document.getElementById('statTime');
+        const uiStatRem = document.getElementById('statRemaining');
+        const uiBtnRTH = document.getElementById('btnReturnHome');
+        const uiBtnClear = document.getElementById('btnClearMission');
+        const uiStatus = document.getElementById('missionStatus');
+
+        uiMissionToggle.addEventListener('change', (e) => {
+            isMissionMode = e.target.checked;
+            if (isMissionMode) {
+                uiMissionControls.classList.remove('hidden');
+                // Small delay to allow display:block to apply before fading in
+                setTimeout(() => uiMissionControls.classList.remove('opacity-0'), 10);
+                map.getContainer().style.cursor = 'crosshair';
+            } else {
+                uiMissionControls.classList.add('opacity-0');
+                setTimeout(() => uiMissionControls.classList.add('hidden'), 300);
+                map.getContainer().style.cursor = ''; // Reset to default
+            }
+        });
+
+        uiBtnClear.addEventListener('click', clearMission);
+        uiBtnRTH.addEventListener('click', () => {
+            if (waypoints.length > 2) {
+                addWaypoint(waypoints[0].latlng, true); // Add home point again
+            }
+        });
+
+        // Event listeners for inputs to trigger recalculation
+        uiMaxTime.addEventListener('change', updateMissionStats);
+        uiHeight.addEventListener('change', () => {
+            // Need to refetch wind data for all points if height changes
+            if (waypoints.length > 0) recalculateAllWaypoints();
+        });
+
+        function clearMission() {
+            waypoints = [];
+            missionLayerGroup.clearLayers();
+            if (missionPolyline) {
+                map.removeLayer(missionPolyline);
+                missionPolyline = null;
+            }
+            updateMissionStats();
+            uiStatus.innerText = "Click the map to set Home Point.";
+            uiBtnRTH.disabled = true;
+            uiBtnClear.disabled = true;
+        }
+
+        function getBearing(lat1, lon1, lat2, lon2) {
+            // Convert to radians
+            const φ1 = lat1 * Math.PI / 180;
+            const φ2 = lat2 * Math.PI / 180;
+            const λ1 = lon1 * Math.PI / 180;
+            const λ2 = lon2 * Math.PI / 180;
+
+            const y = Math.sin(λ2 - λ1) * Math.cos(φ2);
+            const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(λ2 - λ1);
+            const θ = Math.atan2(y, x);
+
+            return (θ * 180 / Math.PI + 360) % 360; // in degrees
+        }
+
+        async function recalculateAllWaypoints() {
+            uiStatus.innerText = "Recalculating mission parameters...";
+            for (let i = 0; i < waypoints.length; i++) {
+                // Re-fetch wind for new height
+                const wind = await getWindData(waypoints[i].latlng.lat, waypoints[i].latlng.lng);
+                waypoints[i].windData = wind;
+            }
+            updateMissionStats();
+        }
+
+        async function addWaypoint(latlng, isRTH = false) {
+            uiStatus.innerText = "Fetching weather data for waypoint...";
+
+            // Add visual marker
+            const isHome = waypoints.length === 0;
+            const markerColor = isHome ? '#3b82f6' : (isRTH ? '#eab308' : '#ef4444');
+            const markerText = isHome ? 'H' : (isRTH ? 'RTH' : waypoints.length);
+
+            const icon = L.divIcon({
+                className: 'custom-div-icon',
+                html: `<div style="background-color:${markerColor}; width:24px; height:24px; border-radius:50%; color:white; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:bold; border:2px solid white; box-shadow:0 2px 4px rgba(0,0,0,0.3); margin-left:-12px; margin-top:-12px;">${markerText}</div>`,
+                iconSize: [24, 24],
+                iconAnchor: [12, 12]
+            });
+
+            L.marker(latlng, { icon: icon }).addTo(missionLayerGroup);
+
+            // Draw line
+            const points = waypoints.map(wp => wp.latlng);
+            points.push(latlng);
+
+            if (missionPolyline) {
+                missionPolyline.setLatLngs(points);
+            } else if (points.length > 1) {
+                missionPolyline = L.polyline(points, { color: '#3b82f6', weight: 3, dashArray: '5, 10' }).addTo(map);
+            }
+
+            // Fetch Data
+            let windData = null;
+            try {
+                windData = await getWindData(latlng.lat, latlng.lng);
+            } catch (e) {
+                console.error("Failed to get wind for waypoint", e);
+                uiStatus.innerText = "Warning: Failed to fetch wind data. Using defaults.";
+            }
+
+            waypoints.push({
+                latlng: latlng,
+                windData: windData,
+                isRTH: isRTH
+            });
+
+            uiBtnClear.disabled = false;
+            if (waypoints.length > 2) uiBtnRTH.disabled = false;
+            if (isRTH) {
+                uiBtnRTH.disabled = true; // Complete
+                uiStatus.innerText = "Mission configured.";
+            } else {
+                uiStatus.innerText = "Click to add next waypoint.";
+            }
+
+            updateMissionStats();
+        }
+
+        function updateMissionStats() {
+            if (waypoints.length === 0) {
+                uiStatDist.innerText = "0 m";
+                uiStatTime.innerText = "0:00";
+                uiStatRem.innerText = `${uiMaxTime.value}:00`;
+                uiStatRem.className = "font-bold text-blue-400";
+                return;
+            }
+
+            const targetHeight = parseFloat(uiHeight.value) || 60;
+            const maxMinutes = parseFloat(uiMaxTime.value) || 30;
+
+            let totalDist = 0;
+            let totalSeconds = 0;
+
+            // 1. Initial Climb Tax and Final Descent Tax (assuming we land at end)
+            totalSeconds += (targetHeight / DRONE_CLIMB_SPEED);
+            totalSeconds += (targetHeight / DRONE_DESCENT_SPEED);
+
+            // 2. Leg Calculations
+            for (let i = 1; i < waypoints.length; i++) {
+                const prev = waypoints[i - 1];
+                const curr = waypoints[i];
+
+                const dist = map.distance(prev.latlng, curr.latlng);
+                totalDist += dist;
+
+                // Determine effective wind speed
+                // We use the wind data from the destination waypoint for the leg
+                let windSpdKmh = 0;
+                let windDirDeg = 0;
+
+                if (curr.windData && curr.windData.hourly) {
+                    const h = parseInt(targetHeight);
+                    // Select closest height tier from open-meteo response (10m, 80m, 120m)
+                    if (h <= 45) {
+                        windSpdKmh = curr.windData.current.wind_speed_10m;
+                        windDirDeg = curr.windData.current.wind_direction_10m;
+                    } else if (h <= 100) {
+                        windSpdKmh = curr.windData.hourly.wind_speed_80m[0];
+                        windDirDeg = curr.windData.hourly.wind_direction_80m[0];
+                    } else {
+                        windSpdKmh = curr.windData.hourly.wind_speed_120m[0];
+                        windDirDeg = curr.windData.hourly.wind_direction_120m[0];
+                    }
+                }
+
+                const windSpdMs = windSpdKmh / 3.6;
+                const flightBearing = getBearing(prev.latlng.lat, prev.latlng.lng, curr.latlng.lat, curr.latlng.lng);
+
+                // Calculate headwind (+ is headwind, - is tailwind)
+                // Math.cos takes radians. 
+                // A headwind means wind direction is opposite to flight bearing.
+                // Wind direction is WHERE IT BLOWS FROM. So if flying North (0) and wind from North (0), that's a direct headwind.
+                const angleRad = (windDirDeg - flightBearing) * (Math.PI / 180);
+                const headwind = windSpdMs * Math.cos(angleRad);
+
+                // Effective ground speed
+                let effectiveSpeed = DRONE_CRUISE_SPEED - headwind;
+                if (effectiveSpeed < 1) effectiveSpeed = 1; // absolute minimum progress to avoid infinite time
+
+                const legTime = dist / effectiveSpeed;
+                totalSeconds += legTime;
+            }
+
+            // Update UI
+            uiStatDist.innerText = totalDist < 1000 ? `${Math.round(totalDist)} m` : `${(totalDist / 1000).toFixed(2)} km`;
+
+            const flightMins = Math.floor(totalSeconds / 60);
+            const flightSecs = Math.round(totalSeconds % 60);
+            uiStatTime.innerText = `${flightMins}:${flightSecs.toString().padStart(2, '0')}`;
+
+            const remainingMins = maxMinutes - (totalSeconds / 60);
+            const sign = remainingMins < 0 ? '-' : '';
+            const absRemMinsBase = Math.abs(remainingMins);
+            const rMins = Math.floor(absRemMinsBase);
+            const rSecs = Math.round((absRemMinsBase - rMins) * 60);
+
+            uiStatRem.innerText = `${sign}${rMins}:${rSecs.toString().padStart(2, '0')}`;
+
+            if (remainingMins < 0) {
+                uiStatRem.className = "font-bold text-red-500 animate-pulse";
+            } else if (remainingMins < 5) {
+                uiStatRem.className = "font-bold text-amber-500";
+            } else {
+                uiStatRem.className = "font-bold text-blue-400";
+            }
+        }
+
+        document.getElementById('opacitySlider').addEventListener('input', e => {
+            document.getElementById('opacityValue').innerText = e.target.value + '%';
+            heightLayer.setOpacity(e.target.value / 100);
         });
 
         map.on('locationerror', (e) => {
@@ -557,7 +865,17 @@
             return activeHtml ? `<div class="mt-3 pt-2 border-t border-slate-200"><b class="text-sm text-slate-800 block mb-2 font-bold uppercase">Flight Zones</b>${activeHtml}</div>` : '';
         }
 
+        // --- MAP CLICK HANDLER ---
+
         map.on('click', async function (e) {
+            if (isMissionMode) {
+                // If the last waypoint is RTH, prevent adding more unless cleared
+                if (waypoints.length > 0 && waypoints[waypoints.length - 1].isRTH) return;
+
+                await addWaypoint(e.latlng);
+                return; // Stop execution here so we don't fetch Maa-amet popups
+            }
+
             const popup = L.popup({ minWidth: 260 }).setLatLng(e.latlng).setContent('<div class="loading p-2"><div class="spinner"></div><span>Querying Data...</span></div>').openOn(map);
             const p3301 = estCRS.project(e.latlng);
             const buffer = 4;
