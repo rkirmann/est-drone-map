@@ -248,7 +248,7 @@
         let currentPowerGridBbox = '';
         function updatePowerGrid() {
             if (!map.hasLayer(powerGridLayer)) return;
-            if (map.getZoom() < 10) {
+            if (map.getZoom() < 8) {
                 powerGridLayer.clearLayers();
                 currentPowerGridBbox = '';
                 return;
@@ -410,7 +410,7 @@
 
         function updateBuildings() {
             if (!map.hasLayer(buildingsLayer)) return;
-            if (map.getZoom() < 10) {
+            if (map.getZoom() < 9) {
                 buildingsLayer.clearLayers();
                 currentBuildingsBbox = '';
                 return;
