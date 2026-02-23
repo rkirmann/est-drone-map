@@ -134,7 +134,7 @@
 
         <div class="space-y-2 border-t border-slate-700 pt-2">
             <div class="flex items-center gap-2">
-                <input type="checkbox" id="powerGridToggle" class="w-4 h-4 cursor-pointer accent-blue-500">
+                <input type="checkbox" id="powerGridToggle" class="w-4 h-4 cursor-pointer accent-amber-500">
                 <label for="powerGridToggle"
                     class="text-[10px] font-bold text-amber-400 cursor-pointer uppercase tracking-tight">⚡ Power Grid &
                     Towers</label>
@@ -152,6 +152,13 @@
                 <label for="buildingsToggle"
                     class="text-[10px] font-bold text-green-400 cursor-pointer uppercase tracking-tight">🏢 Buildings
                     (Z15+)</label>
+            </div>
+
+            <div class="flex items-center gap-2">
+                <input type="checkbox" id="labelsToggle" class="w-4 h-4 cursor-pointer accent-slate-300">
+                <label for="labelsToggle"
+                    class="text-[10px] font-bold text-slate-300 cursor-pointer uppercase tracking-tight">🗺️ Place
+                    Names</label>
             </div>
         </div>
     </div>
@@ -304,6 +311,10 @@
 
         L.tileLayer.wms('https://kaart.maaamet.ee/wms/fotokaart', { layers: 'EESTIFOTO', format: 'image/jpeg', attribution: '&copy; Maa-amet' }).addTo(map);
         const heightLayer = L.tileLayer.wms('https://kaart.maaamet.ee/wms/fotokaart', { layers: 'nDSM', format: 'image/png', transparent: true, opacity: 0.75 }).addTo(map);
+
+        // Place Names / Labels Layer (HYBRID from Maa-amet)
+        const labelsLayer = L.tileLayer.wms('https://kaart.maaamet.ee/wms/fotokaart', { layers: 'HYBRID', format: 'image/png', transparent: true, zIndex: 400 });
+
         const powerGridLayer = L.layerGroup();
         const eansLayer = L.layerGroup();
 
@@ -773,7 +784,7 @@
                         let h = props.korgus_m || props.korgus || props.suhteline_korgus || props.absoluutne_korgus || 0;
                         if (!h && props.nimipinge) {
                             const v = parseInt(props.nimipinge);
-                            if (v >= 110) h = 25; else if (v >= 10) h = 12; else h = 8;
+                            if (v >= 330) h = 35; else if (v >= 110) h = 25; else if (v >= 10) h = 12; else h = 8;
                         }
 
                         let color = '#84cc00'; // 0-5m
@@ -801,6 +812,11 @@
                 }).addTo(buildingsLayer);
             }).catch(e => console.error("Error fetching buildings WFS:", e));
         }
+
+        document.getElementById('labelsToggle').addEventListener('change', e => {
+            if (e.target.checked) labelsLayer.addTo(map);
+            else map.removeLayer(labelsLayer);
+        });
 
         document.getElementById('buildingsToggle').addEventListener('change', e => {
             if (e.target.checked) {
