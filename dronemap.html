@@ -805,7 +805,7 @@
                             if (v >= 330) h = 35; else if (v >= 110) h = 25; else if (v >= 10) h = 12; else h = 8;
                         }
 
-                        let color = '#84cc00'; // 0-5m
+                        let color = '#3b82f6';
                         if (h > 35) color = '#800000';
                         else if (h > 25) color = '#ff0000';
                         else if (h > 15) color = '#ff7b00';
@@ -816,8 +816,15 @@
                             weight: 1,
                             fillColor: color,
                             fillOpacity: 0.7,
-                            interactive: false // Let map clicks go through to the main popup query
+                            interactive: true
                         };
+                    },
+                    onEachFeature: function (feature, layer) {
+                        layer.on('click', (e) => {
+                            if (isMissionMode) return;
+                            L.DomEvent.stopPropagation(e);
+                            showInfoPopup(e.latlng, feature.properties);
+                        });
                     },
                     pointToLayer: function (feature, latlng) {
                         return L.circleMarker(latlng, {
@@ -910,37 +917,43 @@
             return activeHtml ? `<div class="mt-3 pt-2 border-t border-slate-200"><b class="text-sm text-slate-800 block mb-2 font-bold uppercase">Flight Zones</b>${activeHtml}</div>` : '';
         }
 
-        // --- MAP CLICK HANDLER ---
+        // --- MAP CLICK HANDLER & POPUPS ---
 
-        map.on('click', async function (e) {
-            if (isMissionMode) {
-                // If the last waypoint is RTH, prevent adding more unless cleared
-                if (waypoints.length > 0 && waypoints[waypoints.length - 1].isRTH) return;
+        async function showInfoPopup(latlng, preLoadedFeature = null) {
+            const popup = L.popup({ minWidth: 260 }).setLatLng(latlng).setContent('<div class="loading p-2"><div class="spinner"></div><span>Querying Data...</span></div>').openOn(map);
 
-                await addWaypoint(e.latlng);
-                return; // Stop execution here so we don't fetch Maa-amet popups
+            let feature = preLoadedFeature;
+            let wind = null;
+            let dbRes = null;
+
+            if (!feature) {
+                const p3301 = estCRS.project(latlng);
+                const zoom = map.getZoom();
+                // Dynamic buffer: much larger on zoomed out map for easier clicking on mobile
+                let buffer = 4;
+                if (zoom <= 14) buffer = 20;
+                else if (zoom === 15) buffer = 15;
+                else if (zoom === 16) buffer = 10;
+                else if (zoom >= 17) buffer = 5;
+
+                const bbox = `${p3301.x - buffer},${p3301.y - buffer},${p3301.x + buffer},${p3301.y + buffer}`;
+                const layers = [
+                    'etak:e_401_hoone_ka', 'etak:e_402_korgrajatis_p',
+                    'etak:e_403_muu_rajatis_ka', 'etak:e_601_elektriliin_j',
+                    'etak:e_602_tehnopaigaldis_p'
+                ].join(',');
+                const wfsUrl = `https://gsavalik.envir.ee/geoserver/etak/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=${layers}&outputFormat=application/json&srsName=EPSG:3301&bbox=${bbox}`;
+
+                [dbRes, wind] = await Promise.all([
+                    fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(wfsUrl)}`).then(r => r.json()).then(j => JSON.parse(j.contents)).catch(() => null),
+                    getWindData(latlng.lat, latlng.lng)
+                ]);
+                feature = (dbRes && dbRes.features && dbRes.features.length > 0) ? dbRes.features[0].properties : null;
+            } else {
+                wind = await getWindData(latlng.lat, latlng.lng);
             }
 
-            const popup = L.popup({ minWidth: 260 }).setLatLng(e.latlng).setContent('<div class="loading p-2"><div class="spinner"></div><span>Querying Data...</span></div>').openOn(map);
-            const p3301 = estCRS.project(e.latlng);
-            const buffer = 4;
-            const bbox = `${p3301.x - buffer},${p3301.y - buffer},${p3301.x + buffer},${p3301.y + buffer}`;
-            const layers = [
-                'etak:e_401_hoone_ka', 'etak:e_402_korgrajatis_p',
-                'etak:e_403_muu_rajatis_ka', 'etak:e_601_elektriliin_j',
-                'etak:e_602_tehnopaigaldis_p'
-            ].join(',');
-
-            const wfsUrl = `https://gsavalik.envir.ee/geoserver/etak/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=${layers}&outputFormat=application/json&srsName=EPSG:3301&bbox=${bbox}`;
-
-            const [dbRes, wind] = await Promise.all([
-                fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(wfsUrl)}`).then(r => r.json()).then(j => JSON.parse(j.contents)).catch(() => null),
-                getWindData(e.latlng.lat, e.latlng.lng)
-            ]);
-
-            const zonesHtml = getActiveZones(e.latlng);
-
-            let feature = (dbRes && dbRes.features && dbRes.features.length > 0) ? dbRes.features[0].properties : null;
+            const zonesHtml = getActiveZones(latlng);
 
             let windHtml = wind ? `
             <div class="mt-3 pt-2 border-t border-slate-200">
@@ -974,7 +987,6 @@
                 const voltage = feature.nimipinge;
                 const typeName = feature.tyyp_tekst || feature.nimetus || (voltage ? "Elektriliin" : "Object");
 
-                // ESTIMATE CALCULATOR: Calculate tower height and clearance based on voltage if height is missing
                 let estimatedInfo = '';
                 if (voltage && !height) {
                     const v = parseInt(voltage);
@@ -982,13 +994,13 @@
                         height = 35;
                         estimatedInfo = `<div class="text-[10px] text-amber-600 italic">Clearance estimate: ~15m</div>`;
                     } else if (v >= 110) {
-                        height = 25; // Estimated tower height
+                        height = 25;
                         estimatedInfo = `<div class="text-[10px] text-amber-600 italic">Clearance estimate: ~10m</div>`;
                     } else if (v >= 10) {
-                        height = 12; // Estimated tower height
+                        height = 12;
                         estimatedInfo = `<div class="text-[10px] text-amber-600 italic">Clearance estimate: ~7m</div>`;
                     } else {
-                        height = 8; // Estimated pole height
+                        height = 8;
                         estimatedInfo = `<div class="text-[10px] text-amber-600 italic">Clearance estimate: ~5m</div>`;
                     }
                 }
@@ -1015,6 +1027,15 @@
                 </div>
             `);
             }
+        }
+
+        map.on('click', async function (e) {
+            if (isMissionMode) {
+                if (waypoints.length > 0 && waypoints[waypoints.length - 1].isRTH) return;
+                await addWaypoint(e.latlng);
+                return;
+            }
+            showInfoPopup(e.latlng);
         });
     </script>
 </body>
