@@ -125,6 +125,21 @@
     <!-- Floating Controls Panel -->
     <div
         class="floating-controls bg-slate-900/90 backdrop-blur text-white p-2.5 rounded-xl border border-slate-700 shadow-2xl">
+
+        <div class="mb-2 pb-2 border-b border-slate-700">
+            <div class="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 mt-0.5">Base Map</div>
+            <div class="flex items-center gap-3">
+                <label class="flex items-center gap-1 cursor-pointer">
+                    <input type="radio" name="basemap" value="satellite" class="w-3 h-3 accent-blue-500" checked>
+                    <span class="text-[9px] font-bold text-slate-300 uppercase tracking-wider">Satellite</span>
+                </label>
+                <label class="flex items-center gap-1 cursor-pointer">
+                    <input type="radio" name="basemap" value="map" class="w-3 h-3 accent-blue-500">
+                    <span class="text-[9px] font-bold text-slate-300 uppercase tracking-wider">Map</span>
+                </label>
+            </div>
+        </div>
+
         <label for="opacitySlider"
             class="block text-[9px] font-bold text-slate-300 mb-1 flex justify-between uppercase tracking-wider">
             <span>nDSM Opacity</span>
@@ -309,8 +324,11 @@
         };
         locationControl.addTo(map);
 
-        L.tileLayer.wms('https://kaart.maaamet.ee/wms/fotokaart', { layers: 'EESTIFOTO', format: 'image/jpeg', attribution: '&copy; Maa-amet' }).addTo(map);
-        const heightLayer = L.tileLayer.wms('https://kaart.maaamet.ee/wms/fotokaart', { layers: 'nDSM', format: 'image/png', transparent: true, opacity: 0.75 }).addTo(map);
+        const baseSatellite = L.tileLayer.wms('https://kaart.maaamet.ee/wms/fotokaart', { layers: 'EESTIFOTO', format: 'image/jpeg', attribution: '&copy; Maa-amet', zIndex: 1 }).addTo(map);
+        const baseMap = L.tileLayer.wms('https://kaart.maaamet.ee/wms/kaart', { layers: 'MA-KAART', format: 'image/png', attribution: '&copy; Maa-amet', zIndex: 1 });
+
+        // Force heightLayer to stay above base maps (zIndex 10)
+        const heightLayer = L.tileLayer.wms('https://kaart.maaamet.ee/wms/fotokaart', { layers: 'nDSM', format: 'image/png', transparent: true, opacity: 0.75, zIndex: 10 }).addTo(map);
 
         // Place Names / Labels Layer (HYBRID from Maa-amet)
         const labelsLayer = L.tileLayer.wms('https://kaart.maaamet.ee/wms/fotokaart', { layers: 'HYBRID', format: 'image/png', transparent: true, zIndex: 400 });
@@ -812,6 +830,20 @@
                 }).addTo(buildingsLayer);
             }).catch(e => console.error("Error fetching buildings WFS:", e));
         }
+
+        // --- TOGGLES ---
+
+        document.querySelectorAll('input[name="basemap"]').forEach(radio => {
+            radio.addEventListener('change', (e) => {
+                if (e.target.value === 'satellite') {
+                    map.removeLayer(baseMap);
+                    baseSatellite.addTo(map);
+                } else {
+                    map.removeLayer(baseSatellite);
+                    baseMap.addTo(map);
+                }
+            });
+        });
 
         document.getElementById('labelsToggle').addEventListener('change', e => {
             if (e.target.checked) labelsLayer.addTo(map);
