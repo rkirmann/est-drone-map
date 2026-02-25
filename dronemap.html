@@ -165,11 +165,15 @@
                 <div class="flex items-center gap-3">
                     <label class="flex items-center gap-1 cursor-pointer">
                         <input type="radio" name="basemap" value="satellite" class="w-3 h-3 accent-blue-500" checked>
-                        <span class="text-[9px] font-bold text-slate-300 uppercase tracking-wider">Satellite</span>
+                        <span class="text-[9px] font-bold text-slate-300 uppercase tracking-wider">SAT</span>
+                    </label>
+                    <label class="flex items-center gap-1 cursor-pointer">
+                        <input type="radio" name="basemap" value="hybrid" class="w-3 h-3 accent-blue-500">
+                        <span class="text-[9px] font-bold text-slate-300 uppercase tracking-wider">HYB</span>
                     </label>
                     <label class="flex items-center gap-1 cursor-pointer">
                         <input type="radio" name="basemap" value="map" class="w-3 h-3 accent-blue-500">
-                        <span class="text-[9px] font-bold text-slate-300 uppercase tracking-wider">Map</span>
+                        <span class="text-[9px] font-bold text-slate-300 uppercase tracking-wider">MAP</span>
                     </label>
                 </div>
             </div>
@@ -222,15 +226,6 @@
                     <label for="aerofotoToggle"
                         class="text-[10px] font-bold text-purple-400 cursor-pointer uppercase tracking-tight relative z-50">📷
                         Oblique Photos</label>
-                </div>
-
-                <div class="flex items-center gap-2">
-                    <input type="checkbox" id="labelsToggle"
-                        class="w-4 h-4 cursor-pointer accent-slate-300 relative z-50">
-                    <label for="labelsToggle"
-                        class="text-[10px] font-bold text-slate-300 cursor-pointer uppercase tracking-tight relative z-50">🗺️
-                        Place
-                        Names</label>
                 </div>
             </div>
         </div>
@@ -1263,19 +1258,19 @@
 
         document.querySelectorAll('input[name="basemap"]').forEach(radio => {
             radio.addEventListener('change', (e) => {
+                map.removeLayer(baseMap);
+                map.removeLayer(baseSatellite);
+                map.removeLayer(labelsLayer);
+
                 if (e.target.value === 'satellite') {
-                    map.removeLayer(baseMap);
                     baseSatellite.addTo(map);
+                } else if (e.target.value === 'hybrid') {
+                    baseSatellite.addTo(map);
+                    labelsLayer.addTo(map);
                 } else {
-                    map.removeLayer(baseSatellite);
                     baseMap.addTo(map);
                 }
             });
-        });
-
-        document.getElementById('labelsToggle').addEventListener('change', e => {
-            if (e.target.checked) labelsLayer.addTo(map);
-            else map.removeLayer(labelsLayer);
         });
 
         document.getElementById('aircraftToggle').addEventListener('change', e => {
