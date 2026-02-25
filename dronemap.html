@@ -894,7 +894,8 @@
             if (!alertBox) {
                 alertBox = document.createElement('div');
                 alertBox.id = 'criticalAircraftAlert';
-                alertBox.className = 'absolute top-16 left-1/2 transform -translate-x-1/2 z-[2000] bg-red-600/90 backdrop-blur text-white px-6 py-4 rounded-xl shadow-2xl border-2 border-red-400 flex flex-col items-center animate-bounce pointer-events-none';
+                // Use left-0 right-0 mx-auto to center, avoiding transform conflicts with animate-bounce
+                alertBox.className = 'absolute top-16 sm:top-20 left-0 right-0 mx-auto w-[90%] max-w-sm z-[2000] bg-red-600/95 backdrop-blur text-white px-4 py-3 sm:px-6 sm:py-4 rounded-xl shadow-2xl border-2 border-red-400 flex flex-col items-center animate-bounce pointer-events-none';
                 document.body.appendChild(alertBox);
             }
             alertBox.innerHTML = `
