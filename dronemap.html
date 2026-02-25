@@ -824,7 +824,11 @@
             const proxiedFrUrl = `https://corsproxy.io/?${encodeURIComponent(frUrl)}`;
 
             try {
-                const res = await fetch(proxiedFrUrl);
+                // Ensure mobile browsers unconditionally skip their internal HTTP cache mechanism
+                const res = await fetch(proxiedFrUrl, {
+                    cache: 'no-store',
+                    headers: { 'Pragma': 'no-cache', 'Cache-Control': 'no-cache' }
+                });
                 if (!res.ok) return;
                 const frData = await res.json();
 
@@ -1443,6 +1447,14 @@
         // Loop the update in the background constantly every 5 seconds
         updateAircraft();
         aircraftInterval = setInterval(updateAircraft, 5000);
+
+        // Mobile browsers aggressively pause setInterval when the tab is backgrounded or screen is off.
+        // This forces an immediate data refresh the exact millisecond the user returns to the map tab.
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) {
+                updateAircraft();
+            }
+        });
 
         document.getElementById('buildingsToggle').addEventListener('change', e => {
             if (e.target.checked) {
