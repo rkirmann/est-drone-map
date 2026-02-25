@@ -889,6 +889,48 @@
             }
         }
 
+        let isAlarmPlaying = false;
+        let alarmInterval;
+
+        function playLoudAlarm() {
+            if (isAlarmPlaying) return;
+            isAlarmPlaying = true;
+
+            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+            const beep = () => {
+                if (!isAlarmPlaying) return;
+                const osc = audioCtx.createOscillator();
+                const gainNode = audioCtx.createGain();
+
+                osc.type = 'square';
+                osc.frequency.setValueAtTime(880, audioCtx.currentTime); // A5
+                osc.frequency.setValueAtTime(1100, audioCtx.currentTime + 0.1);
+
+                gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.3);
+
+                osc.connect(gainNode);
+                gainNode.connect(audioCtx.destination);
+
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.3);
+            };
+
+            // Double beep every second
+            beep();
+            setTimeout(beep, 150);
+            alarmInterval = setInterval(() => {
+                beep();
+                setTimeout(beep, 150);
+            }, 1000);
+        }
+
+        function stopLoudAlarm() {
+            isAlarmPlaying = false;
+            if (alarmInterval) clearInterval(alarmInterval);
+        }
+
         function triggerCriticalAlert(callsign, altM, speedKmh) {
             let alertBox = document.getElementById('criticalAircraftAlert');
             if (!alertBox) {
@@ -909,11 +951,15 @@
                 </div>
             `;
             alertBox.style.display = 'flex';
+
+            // Start the audio alarm
+            playLoudAlarm();
         }
 
         function hideCriticalAlert() {
             const alertBox = document.getElementById('criticalAircraftAlert');
             if (alertBox) alertBox.style.display = 'none';
+            stopLoudAlarm();
         }
 
         function getCrossTrackDistance(lat1, lon1, lat2, lon2, brng) {
@@ -1445,6 +1491,27 @@
             }
         });
 
+        // --- WAKE LOCK (Keep screen on) ---
+        let wakeLock = null;
+        async function requestWakeLock() {
+            try {
+                if ('wakeLock' in navigator) {
+                    wakeLock = await navigator.wakeLock.request('screen');
+                    wakeLock.addEventListener('release', () => {
+                        console.log('Screen Wake Lock released');
+                    });
+                    console.log('Screen Wake Lock acquired');
+                }
+            } catch (err) {
+                console.error(`${err.name}, ${err.message}`);
+            }
+        }
+
+        // Request wake lock on first interaction (required by many browsers)
+        document.addEventListener('click', () => {
+            if (!wakeLock) requestWakeLock();
+        }, { once: true });
+
         // Loop the update in the background constantly every 5 seconds
         updateAircraft();
         aircraftInterval = setInterval(updateAircraft, 5000);
@@ -1454,6 +1521,10 @@
         document.addEventListener('visibilitychange', () => {
             if (!document.hidden) {
                 updateAircraft();
+                // Re-acquire wake lock if it was released when tab was hidden
+                if (wakeLock === null || wakeLock.released) {
+                    requestWakeLock();
+                }
             }
         });
 
