@@ -819,7 +819,8 @@
             }
 
             // Use FR24 bounds format: maxLat,minLat,minLon,maxLon
-            const frUrl = `https://data-cloud.flightradar24.com/zones/fcgi/boxes.json?bounds=${lamax},${lamin},${lomin},${lomax}&faa=1&satellite=1&mlat=1&flarm=1&adsb=1&gnd=1&vehicles=1&gliders=1&estimated=1`;
+            // Add a cache-buster (_cb) to prevent aggressive mobile browser caching of the proxy response
+            const frUrl = `https://data-cloud.flightradar24.com/zones/fcgi/boxes.json?bounds=${lamax},${lamin},${lomin},${lomax}&faa=1&satellite=1&mlat=1&flarm=1&adsb=1&gnd=1&vehicles=1&gliders=1&estimated=1&_cb=${Date.now()}`;
             const proxiedFrUrl = `https://corsproxy.io/?${encodeURIComponent(frUrl)}`;
 
             try {
