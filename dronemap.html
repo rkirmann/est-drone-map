@@ -1114,12 +1114,16 @@
             activePopupGroup.sort((a, b) => b.id - a.id);
 
             if (activePopupGroup.length > 0) {
+                aerofotoPopupMode = 'cluster';
+                aerofotoClusterLatLng = a.layer.getLatLng();
                 openAerofotoPopup(0);
             }
         });
         let aerofotoIdList = [];
         let aerofotoDataList = [];
         let activePopupGroup = [];
+        let aerofotoPopupMode = 'marker'; // 'cluster' or 'marker'
+        let aerofotoClusterLatLng = null;
         let currentAerofotoRequest = null;
 
         function openAerofotoPopup(index) {
@@ -1151,10 +1155,21 @@
                 </div>
             `;
 
-            data.marker.bindPopup(content, { maxWidth: 350, autoPan: false }).openPopup();
+            let targetPos = [data.lat, data.lng];
+
+            if (aerofotoPopupMode === 'cluster' && aerofotoClusterLatLng) {
+                targetPos = [aerofotoClusterLatLng.lat, aerofotoClusterLatLng.lng];
+                L.popup({ maxWidth: 350, autoPan: false })
+                    .setLatLng(targetPos)
+                    .setContent(content)
+                    .openOn(map);
+            } else {
+                data.marker.bindPopup(content, { maxWidth: 350, autoPan: false }).openPopup();
+                targetPos = [data.lat, data.lng];
+            }
 
             const zoom = map.getZoom();
-            const px = map.project([data.lat, data.lng], zoom);
+            const px = map.project(targetPos, zoom);
             const mapWidth = document.getElementById('map').offsetWidth;
             if (mapWidth > 640) {
                 px.x += 160; // Shift center to the right => marker moves to the left
@@ -1254,10 +1269,12 @@
 
                                     // Find index of clicked photo in the sorted group
                                     const index = activePopupGroup.findIndex(d => d.id === data.id);
+                                    aerofotoPopupMode = 'marker';
                                     openAerofotoPopup(index >= 0 ? index : 0);
                                 } else {
                                     // It's a single standalone marker
                                     activePopupGroup = [data];
+                                    aerofotoPopupMode = 'marker';
                                     openAerofotoPopup(0);
                                 }
                             });
