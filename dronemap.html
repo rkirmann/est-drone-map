@@ -795,6 +795,7 @@
         // --- AIRCRAFT LAYER ---
         const aircraftLayer = L.layerGroup();
         let aircraftInterval = null;
+        let activeAircraftMarkers = {}; // Store markers by FR24 hex ID
 
         const warningAudio = new Audio('data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YU'); // Optional silent base64 fallback or real tick
         let existingWarnings = new Set();
@@ -832,8 +833,9 @@
                 if (!res.ok) return;
                 const frData = await res.json();
 
-                aircraftLayer.clearLayers();
+                // aircraftLayer.clearLayers();
                 let hasCriticalThreats = false;
+                let newlySeenKeys = new Set();
 
                 if (frData) {
                     Object.keys(frData).forEach(key => {
@@ -852,7 +854,8 @@
                             const speedKmh = Math.round(speedKts * 1.852);
 
                             if (lat !== null && lng !== null) {
-                                const isCritical = addAircraftMarker(lat, lng, true_track, callsign, altM, speedKmh, 'FR24');
+                                newlySeenKeys.add(key);
+                                const isCritical = addAircraftMarker(key, lat, lng, true_track, callsign, altM, speedKmh, 'FR24');
                                 if (isCritical) {
                                     hasCriticalThreats = true;
 
@@ -880,6 +883,14 @@
                         }
                     });
                 }
+
+                // Clean up markers that are no longer in frData
+                Object.keys(activeAircraftMarkers).forEach(existingKey => {
+                    if (!newlySeenKeys.has(existingKey)) {
+                        aircraftLayer.removeLayer(activeAircraftMarkers[existingKey]);
+                        delete activeAircraftMarkers[existingKey];
+                    }
+                });
 
                 if (!hasCriticalThreats) {
                     hideCriticalAlert();
@@ -971,7 +982,21 @@
             return Math.asin(Math.sin(d13) * Math.sin(brng13 - brng12)) * R;
         }
 
-        function addAircraftMarker(lat, lng, true_track, callsign, altM, speedKmh, source) {
+        function checkAircraftPopupOffscreen(marker) {
+            if (!marker.isPopupOpen()) return;
+            const bounds = map.getBounds();
+            if (!bounds.contains(marker.getLatLng())) {
+                marker.closePopup();
+            }
+        }
+
+        map.on('move', () => {
+            Object.values(activeAircraftMarkers).forEach(marker => {
+                checkAircraftPopupOffscreen(marker);
+            });
+        });
+
+        function addAircraftMarker(key, lat, lng, true_track, callsign, altM, speedKmh, source) {
             let color = '#3b82f6'; // Default Blue (High Altitude)
             let isThreat = false;
             let isCritical = false;
@@ -1061,9 +1086,7 @@
                 popupAnchor: [0, -12]
             });
 
-            const marker = L.marker([lat, lng], { icon: icon });
-
-            marker.bindPopup(`
+            const popupContent = `
                 <div class="p-1 min-w-[140px]">
                     <b class="text-sm font-bold text-slate-800 uppercase border-b border-slate-200 block pb-1 mb-2">✈️ ${callsign}</b>
                     <div class="text-xs mb-1"><b>Alt:</b> ${Math.round(altM)} m</div>
@@ -1071,8 +1094,26 @@
                     ${threatText}
                     <div class="text-[10px] text-slate-500 mt-2 text-right leading-tight border-t border-slate-100 pt-1">Data by ${source}</div>
                 </div>
-            `);
-            marker.addTo(aircraftLayer);
+            `;
+
+            let marker = activeAircraftMarkers[key];
+            if (marker) {
+                marker.setLatLng([lat, lng]);
+                marker.setIcon(icon);
+
+                if (marker.isPopupOpen()) {
+                    marker.getPopup().setContent(popupContent);
+                    checkAircraftPopupOffscreen(marker);
+                } else {
+                    marker.setPopupContent(popupContent);
+                }
+            } else {
+                marker = L.marker([lat, lng], { icon: icon });
+                marker.bindPopup(popupContent, { autoPan: false });
+                marker.addTo(aircraftLayer);
+                activeAircraftMarkers[key] = marker;
+            }
+
             return isCritical;
         }
 
@@ -1502,9 +1543,11 @@
         document.getElementById('aircraftToggle').addEventListener('change', e => {
             if (e.target.checked) {
                 aircraftLayer.addTo(map);
+                updateAircraft();
             } else {
                 map.removeLayer(aircraftLayer);
                 aircraftLayer.clearLayers();
+                Object.keys(activeAircraftMarkers).forEach(k => delete activeAircraftMarkers[k]);
             }
         });
 
