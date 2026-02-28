@@ -49,6 +49,12 @@ uiMissionToggle.addEventListener('change', (e) => {
         uiMissionControls.classList.add('opacity-0');
         setTimeout(() => uiMissionControls.classList.add('hidden'), 300);
         map.getContainer().style.cursor = ''; // Reset to default
+
+        // Clear all planning points and lines when turned off
+        if (typeof clearMission === 'function') clearMission();
+        if (typeof clearMapping === 'function' && typeof mappingModeActive !== 'undefined' && mappingModeActive) {
+            clearMapping();
+        }
     }
 });
 

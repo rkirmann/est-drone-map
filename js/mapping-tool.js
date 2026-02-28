@@ -158,6 +158,7 @@ let polyDrawPoints = [];
 let activePolyLayer = null;
 
 map.on('click', async (e) => {
+    if (typeof isMissionMode !== 'undefined' && !isMissionMode) return;
     if (!mappingModeActive) return;
 
     if (mappingTool === 'poly') {
