@@ -395,7 +395,7 @@ async function generateLawnmowerPath() {
         document.getElementById('statDistance').innerText = "0 m";
         document.getElementById('statTime').innerText = "0:00";
         document.getElementById('statBatteryUsed').innerText = "-";
-        document.getElementById('statRemaining').innerText = "0 Photos";
+        document.getElementById('statRemaining').innerText = "-";
         return;
     }
 
@@ -606,15 +606,32 @@ async function generateLawnmowerPath() {
     document.getElementById('statBatteryUsed').innerHTML = `Alt: <span class="text-white">${Math.round(flightHeight)}m</span>`;
     document.getElementById('statBatteryUsed').title = "Final Flight Altitude";
 
-    document.getElementById('labelStat4').innerText = "Total Photos:";
+    document.getElementById('labelStat4').innerText = "Rec. Timed Shot:";
     const activeFovV = isTele ? AIR3S_TELE_FOV_V : AIR3S_FOV_V;
     const fovV_rad = (activeFovV * Math.PI) / 180;
 
     const footprintHeight = 2 * flightHeight * Math.tan(fovV_rad / 2);
     const photoIntervalMeters = footprintHeight * (1 - ((parseFloat(uiMapFrontOverlap.value) || 80) / 100));
-    const totalPhotos = Math.round(totalLengthMeters / photoIntervalMeters);
-    document.getElementById('statRemaining').innerText = `~${totalPhotos} Photos`;
-    document.getElementById('statRemaining').className = "font-bold text-blue-400";
+
+    // Calculate required interval in seconds = distance / speed
+    // e.g. 26m / 13 m/s = 2 seconds.
+    // We round to the nearest whole integer or supported standard intervals for DJI (0.7*, 1, 2, 3, 5, 7, 10...)
+    let rawIntervalSeconds = photoIntervalMeters / reqSpeed;
+
+    // Safety clamp (lowest DJI allows for JPEG is usually 2s natively on Timed Shot, sometimes 0.7 on Pro)
+    let displayInterval = Math.max(2, Math.round(rawIntervalSeconds));
+
+    // Give user clear actionable instruction for their remote
+    document.getElementById('statRemaining').innerText = `${displayInterval}s`;
+
+    // If interval is below 2s, highlight red to warn they might not be able to shoot that fast.
+    if (rawIntervalSeconds < 1.9) {
+        document.getElementById('statRemaining').className = "font-bold text-red-500";
+        document.getElementById('statRemaining').title = "Warning: Speed too high to maintain overlap with standard 2s Timed Shot. Reduce speed or increase front overlap.";
+    } else {
+        document.getElementById('statRemaining').className = "font-bold text-blue-400";
+        document.getElementById('statRemaining').title = "Set camera to Timed Shot mode to this value.";
+    }
 
 
 }

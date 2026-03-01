@@ -137,54 +137,12 @@ function createWPMLFiles(currentLawnmowerPath, photoIntervalMeters, speed = 1.3,
             </wpml:actionFuncParam>
           </wpml:action>
         </wpml:actionGroup>
-
-        <!-- Second Action Group: Distance Interval Photos -->
-        <wpml:actionGroup>
-          <wpml:actionGroupId>1</wpml:actionGroupId>
-          <wpml:actionGroupStartIndex>${hasStaging ? 1 : 0}</wpml:actionGroupStartIndex>
-          <wpml:actionGroupEndIndex>${currentLawnmowerPath.length - 1}</wpml:actionGroupEndIndex>
-          <wpml:actionGroupMode>sequence</wpml:actionGroupMode>
-          <wpml:actionTrigger>
-            <wpml:actionTriggerType>multipleDistance</wpml:actionTriggerType>
-            <wpml:actionTriggerParam>
-              <!-- Safe distance interval format -->
-              <wpml:distanceInterval>${Math.max(2, Math.round(photoIntervalMeters))}</wpml:distanceInterval>
-            </wpml:actionTriggerParam>
-          </wpml:actionTrigger>
-          <wpml:action>
-            <wpml:actionId>1</wpml:actionId>
-            <wpml:actionFunc>takePhoto</wpml:actionFunc>
-            <wpml:actionFuncParam>
-              <!-- Target the requested lens explicitly (e.g. 'zoom' sub-lens vs wide) -->
-              <wpml:payloadPositionIndex>${posIndex}</wpml:payloadPositionIndex>
-            </wpml:actionFuncParam>
-          </wpml:action>
-        </wpml:actionGroup>
 `;
     } // End first action group
 
     // On the very last waypoint, let's explicitly add a stop flying / return to home or stop photo action 
     // just for safety, though finishAction=goHome in template.kml handles the actual RTH.
-    if (index === currentLawnmowerPath.length - 1) {
-      waylinesWPML += `
-        <wpml:actionGroup>
-          <wpml:actionGroupId>2</wpml:actionGroupId>
-          <wpml:actionGroupStartIndex>${index}</wpml:actionGroupStartIndex>
-          <wpml:actionGroupEndIndex>${index}</wpml:actionGroupEndIndex>
-          <wpml:actionGroupMode>sequence</wpml:actionGroupMode>
-          <wpml:actionTrigger>
-            <wpml:actionTriggerType>reachPoint</wpml:actionTriggerType>
-          </wpml:actionTrigger>
-          <wpml:action>
-            <wpml:actionId>2</wpml:actionId>
-            <wpml:actionFunc>stopTakephoto</wpml:actionFunc>
-            <wpml:actionFuncParam>
-              <wpml:payloadPositionIndex>0</wpml:payloadPositionIndex>
-            </wpml:actionFuncParam>
-          </wpml:action>
-        </wpml:actionGroup>
-`;
-    }
+
 
     waylinesWPML += `      </Placemark>\n`;
   });
