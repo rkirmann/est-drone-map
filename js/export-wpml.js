@@ -1,9 +1,8 @@
 // export-wpml.js
 
-function createWPMLFiles(currentLawnmowerPath, photoIntervalMeters, lens = 'wide') {
+function createWPMLFiles(currentLawnmowerPath, photoIntervalMeters, speed = 1.3, lens = 'wide') {
   const timestamp = Date.now();
   const flightHeight = currentLawnmowerPath[0].alt;
-  const speed = 1.3;
 
   // Optimal Mapping Camera Settings
   const shutterSpeed = 0.001; // 1/1000s to eliminate motion blur
@@ -211,8 +210,10 @@ document.getElementById('btnExportKMZ').addEventListener('click', async () => {
   // Front Overlap is used for distance interval
   const frontOverlap = (parseFloat(document.getElementById('mapFrontOverlap').value) || 80) / 100;
   const photoIntervalMeters = footprintHeight * (1 - frontOverlap);
+  const speed = parseFloat(document.getElementById('mapSpeed').value) || 1.3;
+  const lens = document.getElementById('mapCameraLens') ? document.getElementById('mapCameraLens').value : 'wide';
 
-  const { templateKML, waylinesWPML } = createWPMLFiles(currentLawnmowerPath, photoIntervalMeters);
+  const { templateKML, waylinesWPML } = createWPMLFiles(currentLawnmowerPath, photoIntervalMeters, speed, lens);
 
   // Create zip
   const zip = new JSZip();

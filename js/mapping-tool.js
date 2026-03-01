@@ -25,6 +25,7 @@ const uiMapAngle = document.getElementById('mapAngle');
 const uiMapSideOverlap = document.getElementById('mapSideOverlap');
 const uiMapFrontOverlap = document.getElementById('mapFrontOverlap');
 const uiMapCameraLens = document.getElementById('mapCameraLens');
+const uiMapSpeed = document.getElementById('mapSpeed');
 
 // Air 3S Specs (approximate 24mm equiv)
 const AIR3S_FOV_H = 73.7; // degrees horizontal
@@ -110,7 +111,7 @@ if (btnToolPoly) {
 }
 
 // Listener for inputs modifying the generated path
-[uiMapAltitude, uiMapAngle, uiMapSideOverlap, uiMapFrontOverlap, uiHeight, uiMapCameraLens].forEach(el => {
+[uiMapAltitude, uiMapAngle, uiMapSideOverlap, uiMapFrontOverlap, uiHeight, uiMapCameraLens, uiMapSpeed].forEach(el => {
     if (el) el.addEventListener('change', generateLawnmowerPath);
 });
 
@@ -593,7 +594,7 @@ async function generateLawnmowerPath() {
     btnExportKMZ.disabled = false;
     if (btnMapReverse) btnMapReverse.disabled = false;
 
-    const reqSpeed = 1.3; // Video mapping recommended slow speed
+    const reqSpeed = parseFloat(uiMapSpeed.value) || 1.3; // Video mapping recommended slow speed
     const estTimeSec = totalLengthMeters / reqSpeed;
     const flightMins = Math.floor(estTimeSec / 60);
     const flightSecs = Math.round(estTimeSec % 60);
