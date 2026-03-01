@@ -128,6 +128,23 @@ function clearMapping() {
     btnExportKMZ.disabled = true;
     if (btnMapReverse) btnMapReverse.disabled = true;
     clearActiveDraw();
+
+    document.getElementById('statDistance').innerText = "0 m";
+    document.getElementById('statTime').innerText = "0:00";
+
+    const label3 = document.getElementById('labelStat3');
+    if (label3) label3.innerText = "Battery Eq. Used:";
+    document.getElementById('statBatteryUsed').innerText = "-";
+    document.getElementById('statBatteryUsed').title = "";
+
+    const label4 = document.getElementById('labelStat4');
+    if (label4) label4.innerText = "Rec. Timed Shot:";
+    const statRem = document.getElementById('statRemaining');
+    if (statRem) {
+        statRem.innerText = "-";
+        statRem.className = "font-bold text-slate-500";
+        statRem.title = "";
+    }
 }
 
 // Intercept original clear button

@@ -83,6 +83,13 @@ function clearMission() {
 
     uiBtnRTH.disabled = true;
     uiBtnClear.disabled = true;
+
+    // Explicitly reset labels (prevents mapping tool labels sticking around)
+    const label3 = document.getElementById('labelStat3');
+    if (label3) label3.innerText = "Battery Eq. Used:";
+
+    const label4 = document.getElementById('labelStat4');
+    if (label4) label4.innerText = "Time Remaining:";
 }
 
 function getBearing(lat1, lon1, lat2, lon2) {
