@@ -591,20 +591,104 @@ async function generateLawnmowerPath() {
     }
 
     // Update Stats UI
-    btnExportKMZ.disabled = false;
-    if (btnMapReverse) btnMapReverse.disabled = false;
+    // Ensure function can be fully awaited to fetch wind
+    let windSpdKmh = 0;
+    let windDirDeg = 0;
+    let tempCelsius = 15;
 
-    const reqSpeed = parseFloat(uiMapSpeed.value) || 1.3; // Video mapping recommended slow speed
-    const estTimeSec = totalLengthMeters / reqSpeed;
-    const flightMins = Math.floor(estTimeSec / 60);
-    const flightSecs = Math.round(estTimeSec % 60);
+    try {
+        // Fetch wind data for the center of the mapping polygon
+        const wind = await getWindData(center.geometry.coordinates[1], center.geometry.coordinates[0]);
+        if (wind && wind.hourly) {
+            tempCelsius = wind.temp || 15;
+            const h = parseInt(flightHeight);
+            if (h <= 45) {
+                windSpdKmh = wind.current.wind_speed_10m;
+                windDirDeg = wind.current.wind_direction_10m;
+            } else if (h <= 100) {
+                windSpdKmh = wind.hourly.wind_speed_80m[0];
+                windDirDeg = wind.hourly.wind_direction_80m[0];
+            } else {
+                windSpdKmh = wind.hourly.wind_speed_120m[0];
+                windDirDeg = wind.hourly.wind_direction_120m[0];
+            }
+        }
+    } catch (e) {
+        console.warn("Could not fetch wind data for mapping battery estimate", e);
+    }
+
+    const windSpdMs = windSpdKmh / 3.6;
+
+    let totalSeconds = 0;
+    let batterySecondsConsumed = 0;
+
+    // 1. Initial Climb Tax and Final Descent Tax
+    const DRONE_CLIMB_SPEED = 3;
+    const DRONE_DESCENT_SPEED = 2;
+    const climbTime = (flightHeight / DRONE_CLIMB_SPEED);
+    totalSeconds += climbTime;
+    batterySecondsConsumed += climbTime * 1.5;
+
+    const descentTime = (flightHeight / DRONE_DESCENT_SPEED);
+    totalSeconds += descentTime;
+    batterySecondsConsumed += descentTime * 0.8;
+
+    // 2. Leg Calculations
+    const reqSpeed = parseFloat(uiMapSpeed.value) || 1.3;
+
+    for (let i = 1; i < currentLawnmowerPath.length; i++) {
+        const prev = currentLawnmowerPath[i - 1];
+        const curr = currentLawnmowerPath[i];
+        const legDist = map.distance([prev.lat, prev.lng], [curr.lat, curr.lng]);
+
+        // Same wind tax logic as mission planner
+        const flightBearing = turf.bearing(turf.point([prev.lng, prev.lat]), turf.point([curr.lng, curr.lat]));
+
+        // Convert turf bearing (-180 to 180) to standard (0 to 360) for math
+        const standardBearing = (flightBearing + 360) % 360;
+
+        const angleRad = (windDirDeg - standardBearing) * (Math.PI / 180);
+        const headwind = windSpdMs * Math.cos(angleRad);
+        const crosswind = Math.abs(windSpdMs * Math.sin(angleRad));
+
+        // Effective ground speed: Mapping speed is usually slow, but the drone crabs into wind.
+        let forwardSpeedCapacity = reqSpeed;
+
+        // Ensure the drone CAN actually fly this requested speed against crosswinds + headwinds.
+        // Drones usually cap top speed if wind is crazy, but we assume it pushes harder to hit reqSpeed.
+        // We calculate how much energy it actually needs.
+
+        // Drone physically limits ground speed if crabbing angle is too extreme.
+        // If the mapping speed is 1.3m/s, and there's 5m/s crosswind, it's just angling hard.
+
+        // Time taken for leg is always dist / reqSpeed unless headwind physically exceeds max drone speed (rare).
+        const legTime = legDist / reqSpeed;
+        totalSeconds += legTime;
+
+        // Wind Tax (power needed to hold that speed + fight wind)
+        // 1m/s wind adds ~3% energy consumption 
+        let windTax = 1 + (windSpdMs * 0.03);
+
+        // Temperature Tax
+        if (tempCelsius < 15) {
+            windTax += (15 - tempCelsius) * 0.01;
+        }
+
+        batterySecondsConsumed += legTime * windTax;
+    }
+
+    const flightMins = Math.floor(totalSeconds / 60);
+    const flightSecs = Math.round(totalSeconds % 60);
+
+    const battMins = Math.floor(batterySecondsConsumed / 60);
+    const battSecs = Math.round(batterySecondsConsumed % 60);
 
     document.getElementById('statDistance').innerText = totalLengthMeters < 1000 ? `${Math.round(totalLengthMeters)} m` : `${(totalLengthMeters / 1000).toFixed(2)} km`;
     document.getElementById('statTime').innerText = `${flightMins}:${flightSecs.toString().padStart(2, '0')}`;
 
-    document.getElementById('labelStat3').innerText = "Flight Height:";
-    document.getElementById('statBatteryUsed').innerHTML = `Alt: <span class="text-white">${Math.round(flightHeight)}m</span>`;
-    document.getElementById('statBatteryUsed').title = "Final Flight Altitude";
+    document.getElementById('labelStat3').innerText = "Battery Eq. Used:";
+    document.getElementById('statBatteryUsed').innerHTML = `${battMins}:${battSecs.toString().padStart(2, '0')} <span class="text-white text-[10px] bg-slate-700 px-1 ml-1 rounded">Alt: ${Math.round(flightHeight)}m</span>`;
+    document.getElementById('statBatteryUsed').title = "Battery time consumed accounting for wind (" + Math.round(windSpdMs) + "m/s)";
 
     document.getElementById('labelStat4').innerText = "Rec. Timed Shot:";
     const activeFovV = isTele ? AIR3S_TELE_FOV_V : AIR3S_FOV_V;
@@ -614,8 +698,6 @@ async function generateLawnmowerPath() {
     const photoIntervalMeters = footprintHeight * (1 - ((parseFloat(uiMapFrontOverlap.value) || 80) / 100));
 
     // Calculate required interval in seconds = distance / speed
-    // e.g. 26m / 13 m/s = 2 seconds.
-    // We round to the nearest whole integer or supported standard intervals for DJI (0.7*, 1, 2, 3, 5, 7, 10...)
     let rawIntervalSeconds = photoIntervalMeters / reqSpeed;
 
     // Safety clamp (lowest DJI allows for JPEG is usually 2s natively on Timed Shot, sometimes 0.7 on Pro)
