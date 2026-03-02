@@ -594,7 +594,29 @@ async function generateLawnmowerPath() {
         const centerPoint = center.geometry.coordinates; // [lng, lat]
 
         const addRing = (coords, alt, pitch) => {
-            coords.forEach(pt => {
+            // Apply rotation offset to the start point so the lead-in can be user-controlled
+            let adjustedCoords = [...coords];
+
+            // Remove the duplicate last point in the Turf polygon ring before shifting
+            if (adjustedCoords.length > 0 &&
+                adjustedCoords[0][0] === adjustedCoords[adjustedCoords.length - 1][0] &&
+                adjustedCoords[0][1] === adjustedCoords[adjustedCoords.length - 1][1]) {
+                adjustedCoords.pop();
+            }
+
+            // Shift array based on user angle (0-360 mapped to array length)
+            if (adjustedCoords.length > 0) {
+                let shiftAmount = Math.floor((angle % 360) / 360 * adjustedCoords.length);
+                if (shiftAmount < 0) shiftAmount += adjustedCoords.length;
+                adjustedCoords = adjustedCoords.slice(shiftAmount).concat(adjustedCoords.slice(0, shiftAmount));
+            }
+
+            // Reverse direction if requested
+            if (pathReversed) {
+                adjustedCoords.reverse();
+            }
+
+            adjustedCoords.forEach(pt => {
                 // For 3D orbits, we want the drone to look at the center of the building footprint
                 missionPointsArr.push({
                     lng: pt[0],
