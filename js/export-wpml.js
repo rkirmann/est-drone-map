@@ -46,6 +46,27 @@ function createWPMLFiles(currentLawnmowerPath, photoIntervalMeters, speed = 1.3,
       <wpml:templateId>0</wpml:templateId>
       <wpml:executeHeightMode>relativeToStartPoint</wpml:executeHeightMode>
       <wpml:waylineId>0</wpml:waylineId>
+      
+      <!-- Standard KML for Google Earth Visualization -->
+      <Placemark>
+        <name>Flight Path</name>
+        <Style>
+          <LineStyle>
+            <color>ff0000ff</color>
+            <width>3</width>
+          </LineStyle>
+          <PolyStyle>
+            <color>7f0000ff</color>
+          </PolyStyle>
+        </Style>
+        <LineString>
+          <extrude>1</extrude>
+          <altitudeMode>relativeToGround</altitudeMode>
+          <coordinates>
+${currentLawnmowerPath.map(pt => `${pt.lng},${pt.lat},${pt.alt}`).join('\n')}
+          </coordinates>
+        </LineString>
+      </Placemark>
       <wpml:distance>0</wpml:distance>
       <wpml:duration>0</wpml:duration>
       <wpml:autoFlightSpeed>${speed}</wpml:autoFlightSpeed>
@@ -92,6 +113,10 @@ function createWPMLFiles(currentLawnmowerPath, photoIntervalMeters, speed = 1.3,
 `;
 
   currentLawnmowerPath.forEach((pt, index) => {
+    const hasPoi = pt.poi !== undefined;
+    const headingMode = hasPoi ? 'towardPOI' : 'followWayline';
+    const poiStr = hasPoi ? `${pt.poi.lng},${pt.poi.lat},0.000000` : `0.000000,0.000000,0.000000`;
+
     waylinesWPML += `
       <Placemark>
         <Point>
@@ -101,30 +126,35 @@ function createWPMLFiles(currentLawnmowerPath, photoIntervalMeters, speed = 1.3,
         <wpml:executeHeight>${pt.alt}</wpml:executeHeight>
         <wpml:waypointSpeed>${speed}</wpml:waypointSpeed>
         <wpml:waypointHeadingParam>
-          <wpml:waypointHeadingMode>followWayline</wpml:waypointHeadingMode>
-          <wpml:waypointPoiPoint>0.000000,0.000000,0.000000</wpml:waypointPoiPoint>
+          <wpml:waypointHeadingMode>${headingMode}</wpml:waypointHeadingMode>
+          <wpml:waypointPoiPoint>${poiStr}</wpml:waypointPoiPoint>
           <wpml:waypointHeadingAngle>0</wpml:waypointHeadingAngle>
         </wpml:waypointHeadingParam>
         <wpml:waypointTurnParam>
           <wpml:waypointTurnMode>toPointAndStopWithDiscontinuityCurve</wpml:waypointTurnMode>
           <wpml:waypointTurnDampingDist>1</wpml:waypointTurnDampingDist>
         </wpml:waypointTurnParam>
-`;
+    `;
 
-    // Add actionGroup to initiate mapping sequence
-    // If we have a staging point (lead-in), we point the camera down immediately at WP 0,
-    // but we only start taking distance-interval photos from WP 1 onward to avoid blurry run-up shots.
-    const hasStaging = currentLawnmowerPath[0] && currentLawnmowerPath[0].isStaging;
+    // Add actionGroup to initiate mapping sequence or change gimbal pitch
+    const targetPitch = pt.gimbalPitch !== undefined ? pt.gimbalPitch : -90;
 
+    let needsPitchAction = false;
+    // We must initialize the pitch at point 0, and update it whenever it changes on subsequent points
     if (index === 0) {
+      needsPitchAction = true;
+    } else if (targetPitch !== currentPitch) {
+      needsPitchAction = true;
+    }
+
+    if (needsPitchAction) {
       waylinesWPML += `
-        <wpml:actionGroup>
-          <wpml:actionGroupId>0</wpml:actionGroupId>
-          <wpml:actionGroupStartIndex>0</wpml:actionGroupStartIndex>
-          <wpml:actionGroupEndIndex>${currentLawnmowerPath.length - 1}</wpml:actionGroupEndIndex>
+      < wpml: actionGroup >
+          <wpml:actionGroupId>${index}</wpml:actionGroupId>
+          <wpml:actionGroupStartIndex>${index}</wpml:actionGroupStartIndex>
+          <wpml:actionGroupEndIndex>${index}</wpml:actionGroupEndIndex>
           <wpml:actionGroupMode>sequence</wpml:actionGroupMode>
           
-          <!-- First Action: Point Gimbal Down during the run-up -->
           <wpml:actionTrigger>
             <wpml:actionTriggerType>reachPoint</wpml:actionTriggerType>
           </wpml:actionTrigger>
@@ -132,24 +162,25 @@ function createWPMLFiles(currentLawnmowerPath, photoIntervalMeters, speed = 1.3,
             <wpml:actionId>0</wpml:actionId>
             <wpml:actionFunc>gimbalEvenlyRotate</wpml:actionFunc>
             <wpml:actionFuncParam>
-              <wpml:gimbalPitchRotateAngle>-90</wpml:gimbalPitchRotateAngle>
+              <wpml:gimbalPitchRotateAngle>${targetPitch}</wpml:gimbalPitchRotateAngle>
               <wpml:payloadPositionIndex>${posIndex}</wpml:payloadPositionIndex>
             </wpml:actionFuncParam>
           </wpml:action>
-        </wpml:actionGroup>
-`;
-    } // End first action group
+        </wpml: actionGroup >
+      `;
+      currentPitch = targetPitch;
+    }
 
     // On the very last waypoint, let's explicitly add a stop flying / return to home or stop photo action 
     // just for safety, though finishAction=goHome in template.kml handles the actual RTH.
 
 
-    waylinesWPML += `      </Placemark>\n`;
+    waylinesWPML += `      </Placemark >\n`;
   });
 
-  waylinesWPML += `    </Folder>
-  </Document>
-</kml>`;
+  waylinesWPML += `    </Folder >
+  </Document >
+</kml > `;
 
   return { templateKML, waylinesWPML };
 }

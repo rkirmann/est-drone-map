@@ -27,6 +27,12 @@ const uiMapFrontOverlap = document.getElementById('mapFrontOverlap');
 const uiMapCameraLens = document.getElementById('mapCameraLens');
 const uiMapSpeed = document.getElementById('mapSpeed');
 
+const uiMap3DToggle = document.getElementById('map3DToggle');
+const uiMap3DParams = document.getElementById('map3DParams');
+const uiMap3DMinAlt = document.getElementById('map3DMinAlt');
+const uiMap3DMaxAlt = document.getElementById('map3DMaxAlt');
+const uiMap3DBuffer = document.getElementById('map3DBuffer');
+
 // Air 3S Specs (approximate 24mm equiv)
 const AIR3S_FOV_H = 73.7; // degrees horizontal
 const AIR3S_FOV_V = 53.1; // degrees vertical
@@ -110,8 +116,17 @@ if (btnToolPoly) {
     });
 }
 
+if (uiMap3DToggle) {
+    uiMap3DToggle.addEventListener('change', () => {
+        if (uiMap3DParams) {
+            uiMap3DParams.classList.toggle('hidden', !uiMap3DToggle.checked);
+        }
+        generateLawnmowerPath();
+    });
+}
+
 // Listener for inputs modifying the generated path
-[uiMapAltitude, uiMapAngle, uiMapSideOverlap, uiMapFrontOverlap, uiHeight, uiMapCameraLens, uiMapSpeed].forEach(el => {
+[uiMapAltitude, uiMapAngle, uiMapSideOverlap, uiMapFrontOverlap, uiHeight, uiMapCameraLens, uiMapSpeed, uiMap3DMinAlt, uiMap3DMaxAlt, uiMap3DBuffer].forEach(el => {
     if (el) el.addEventListener('change', generateLawnmowerPath);
 });
 
@@ -426,7 +441,12 @@ async function generateLawnmowerPath() {
     const buffered = turf.buffer(combined, 0.002, { units: 'kilometers' });
 
     // 2. Flight Height logic
-    const flightHeight = parseFloat(uiMapAltitude.value) || 50;
+    let flightHeight = parseFloat(uiMapAltitude.value) || 50;
+
+    const is3D = uiMap3DToggle && uiMap3DToggle.checked;
+    if (is3D) {
+        flightHeight = parseFloat(uiMap3DMaxAlt.value) || 80;
+    }
 
     // Update Wayne UI to match
     if (uiHeight) {
@@ -539,12 +559,79 @@ async function generateLawnmowerPath() {
     currentLawnmowerPath = [];
     let totalLengthMeters = 0;
 
-    const coords = finalGeoJson.geometry.coordinates;
+    let missionPointsArr = []; // Array of {lat, lng, alt, gimbalPitch}
 
-    // --- ADD 30m STAGING/RUN-UP WAYPOINT ---
-    if (coords.length >= 2) {
-        const p1 = turf.point(coords[0]);
-        const p2 = turf.point(coords[1]);
+    // --- 3D ORBIT GENERATION ---
+    if (is3D) {
+        const bufferMeters = parseFloat(uiMap3DBuffer.value) || 20;
+        const bufferedOrbit = turf.buffer(combined, bufferMeters / 1000, { units: 'kilometers' });
+
+        let orbitCoords = [];
+        if (bufferedOrbit.geometry.type === 'Polygon') {
+            orbitCoords = bufferedOrbit.geometry.coordinates[0];
+        } else if (bufferedOrbit.geometry.type === 'MultiPolygon') {
+            orbitCoords = bufferedOrbit.geometry.coordinates[0][0]; // Take first exterior ring
+        }
+
+        const minAlt = parseFloat(uiMap3DMinAlt.value) || 30;
+        const maxAlt = parseFloat(uiMap3DMaxAlt.value) || 80;
+
+        // Dynamic pass increment based on Vertical FOV and Front Overlap
+        const activeFovV = uiMapCameraLens && uiMapCameraLens.value === 'tele' ? AIR3S_TELE_FOV_V : AIR3S_FOV_V;
+        const fovVRad = (activeFovV * Math.PI) / 180;
+        const frontOverlap = (parseFloat(uiMapFrontOverlap.value) || 80) / 100;
+
+        // When looking at a buildings facade from distance D, the vertical footprint is: 2 * D * tan(FOV/2)
+        // Here, D is approximately the bufferMeters.
+        const verticalFootprint = 2 * bufferMeters * Math.tan(fovVRad / 2);
+
+        // The step up should advance by the non-overlapped portion of the vertical footprint
+        let passIncrement = verticalFootprint * (1 - frontOverlap);
+
+        // Clamp passIncrement to sensible values to prevent infinite loops or giant gaps
+        passIncrement = Math.max(5, Math.min(passIncrement, 50));
+
+        const centerPoint = center.geometry.coordinates; // [lng, lat]
+
+        const addRing = (coords, alt, pitch) => {
+            coords.forEach(pt => {
+                // For 3D orbits, we want the drone to look at the center of the building footprint
+                missionPointsArr.push({
+                    lng: pt[0],
+                    lat: pt[1],
+                    alt: alt,
+                    gimbalPitch: pitch,
+                    poi: { lng: centerPoint[0], lat: centerPoint[1] } // Add POI target
+                });
+            });
+        };
+
+        // Facade passes (Serrated Ascent Strategy)
+        if (orbitCoords && orbitCoords.length > 0) {
+            let currentPitchIsUp = true; // Toggle flag
+
+            // Ascent loop from minAlt up to maxAlt
+            for (let alt = minAlt; alt < maxAlt; alt += passIncrement) {
+                const pitch = currentPitchIsUp ? 15 : -45;
+                addRing(orbitCoords, alt, pitch);
+                currentPitchIsUp = !currentPitchIsUp; // Toggle for next ring
+            }
+
+            // Final Top Oblique pass just before the roof
+            addRing(orbitCoords, maxAlt, -60);
+        }
+    }
+
+    // --- ROOF PASS (LAWNMOWER) ---
+    const coords = finalGeoJson.geometry.coordinates;
+    coords.forEach(pt => {
+        missionPointsArr.push({ lng: pt[0], lat: pt[1], alt: flightHeight, gimbalPitch: -90 });
+    });
+
+    // --- ADD 10m STAGING/RUN-UP WAYPOINT ---
+    if (missionPointsArr.length >= 2) {
+        const p1 = turf.point([missionPointsArr[0].lng, missionPointsArr[0].lat]);
+        const p2 = turf.point([missionPointsArr[1].lng, missionPointsArr[1].lat]);
         // Get bearing from p1 to p2, then reverse it (subtract 180) to go backwards
         const bearing = turf.bearing(p1, p2);
         const reverseBearing = bearing - 180;
@@ -553,27 +640,27 @@ async function generateLawnmowerPath() {
         // (Minimum safe distance to allow speed to stabilize up to 1.3m/s and gimbal to lock)
         const stagingPt = turf.destination(p1, 0.010, reverseBearing, { units: 'kilometers' });
 
-        // Prepend it as an approach point (mark it so we know it doesn't need photos taken at this specific coordinate)
         currentLawnmowerPath.push({
             lat: stagingPt.geometry.coordinates[1],
             lng: stagingPt.geometry.coordinates[0],
-            alt: flightHeight,
-            isStaging: true
+            alt: missionPointsArr[0].alt,
+            isStaging: true,
+            gimbalPitch: missionPointsArr[0].gimbalPitch
         });
 
-        // Add staging dash approach length
         totalLengthMeters += 10;
     }
 
-    for (let i = 0; i < coords.length; i++) {
-        const lat = coords[i][1];
-        const lng = coords[i][0];
+    for (let i = 0; i < missionPointsArr.length; i++) {
+        const lat = missionPointsArr[i].lat;
+        const lng = missionPointsArr[i].lng;
+        const alt = missionPointsArr[i].alt;
+        const pitch = missionPointsArr[i].gimbalPitch;
 
-        // Push normal mapping point
-        currentLawnmowerPath.push({ lat, lng, alt: flightHeight });
+        currentLawnmowerPath.push({ lat, lng, alt, gimbalPitch: pitch });
 
         if (i > 0) {
-            totalLengthMeters += map.distance([coords[i - 1][1], coords[i - 1][0]], [lat, lng]);
+            totalLengthMeters += map.distance([missionPointsArr[i - 1].lat, missionPointsArr[i - 1].lng], [lat, lng]);
         }
     }
 
@@ -732,5 +819,7 @@ async function generateLawnmowerPath() {
         document.getElementById('statRemaining').title = "Set camera to Timed Shot mode to this value.";
     }
 
-
+    // Enable export button once path is successfully drawn
+    btnExportKMZ.disabled = false;
+    if (btnMapReverse) btnMapReverse.disabled = false;
 }
