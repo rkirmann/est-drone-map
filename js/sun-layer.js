@@ -151,11 +151,7 @@ if (sunToggle) {
     sunToggle.addEventListener('change', updateSunLayer);
 }
 
-map.on('move', () => {
-    if (sunToggle && sunToggle.checked) {
-        updateSunLayer();
-    }
-});
+
 
 // Update every minute (for time and sun position)
 setInterval(() => {
