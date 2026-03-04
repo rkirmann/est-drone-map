@@ -52,7 +52,7 @@ function azimuthToBearing(azimuth) {
 function updateSunLayer() {
     if (!sunToggle || !sunToggle.checked) {
         sunLayerGroup.clearLayers();
-        if (sunInfoControl && map.hasLayer(sunInfoControl)) {
+        if (sunInfoControl && sunInfoControl._map) {
             map.removeControl(sunInfoControl);
         }
         return;
@@ -62,8 +62,7 @@ function updateSunLayer() {
         initSunInfoControl();
     }
 
-    if (!map.hasLayer(sunInfoControl)) {
-        // hasLayer checks if control is added on map despite name
+    if (!sunInfoControl._map) {
         sunInfoControl.addTo(map);
     }
 
