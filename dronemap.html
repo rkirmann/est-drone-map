@@ -269,6 +269,15 @@
                         class="text-[10px] font-bold text-purple-400 cursor-pointer uppercase tracking-tight relative z-50">📷
                         Oblique Photos</label>
                 </div>
+
+                <div class="flex items-center gap-2"
+                    title="Shows Sunrise, Sunset, and Current Sun directions from map center">
+                    <input type="checkbox" id="sunToggle"
+                        class="w-4 h-4 cursor-pointer accent-yellow-500 relative z-50">
+                    <label for="sunToggle"
+                        class="text-[10px] font-bold text-yellow-500 cursor-pointer uppercase tracking-tight relative z-50">☀️
+                        Sun Position</label>
+                </div>
             </div>
         </div>
     </div>
@@ -488,6 +497,7 @@
     <!-- Mapping Libraries -->
     <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/suncalc/1.9.0/suncalc.min.js"></script>
 
     <script src="js/map-setup.js"></script>
     <script src="js/mission-planner.js"></script>
@@ -499,6 +509,7 @@
     <script src="js/eans-wind.js"></script>
     <script src="js/buildings.js"></script>
     <script src="js/rmk-trails.js"></script>
+    <script src="js/sun-layer.js"></script>
     <script src="js/ui-toggles.js"></script>
     <script src="js/map-popups.js"></script>
     <script src="js/address-search.js"></script>
