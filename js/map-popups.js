@@ -55,16 +55,13 @@ async function showInfoPopup(latlng, preLoadedFeature = null) {
     let wind = null;
     let dbRes = null;
     let groundElevation = null;
+    const p3301 = estCRS.project(latlng);
 
     if (!feature) {
-        const p3301 = estCRS.project(latlng);
         const zoom = map.getZoom();
         // Dynamic buffer: much larger on zoomed out map for easier clicking on mobile
-        let buffer = 4;
-        if (zoom <= 14) buffer = 20;
-        else if (zoom === 15) buffer = 15;
-        else if (zoom === 16) buffer = 10;
-        else if (zoom >= 17) buffer = 5;
+        let buffer = 2;
+
 
         const bbox = `${p3301.x - buffer},${p3301.y - buffer},${p3301.x + buffer},${p3301.y + buffer}`;
         const layers = [
@@ -86,7 +83,6 @@ async function showInfoPopup(latlng, preLoadedFeature = null) {
             groundElevation = parseFloat(elevationRes["1"].H);
         }
     } else {
-        const p3301 = estCRS.project(latlng);
         const xyzUrl = `https://geoportaal.maaamet.ee/url/xgis-xyz.php?x=${p3301.y}&y=${p3301.x}&out=json`;
         let elevationRes;
 
@@ -144,6 +140,18 @@ async function showInfoPopup(latlng, preLoadedFeature = null) {
             <a href="https://utm.eans.ee/" target="_blank" class="flex-1 text-center bg-slate-800 text-white text-[9px] font-bold py-1.5 rounded uppercase tracking-tighter shadow">Drone Map</a>
         </div>`;
 
+    let elevText = groundElevation !== null ? ' ' + groundElevation.toFixed(2) : '';
+    const gcpHtml = `
+        <div class="mt-3 pt-2 border-t border-slate-200">
+            <div class="flex justify-between items-center mb-1 gap-2 text-[10px]">
+                <span title="EPSG:3301 Coordinates (Easting Northing Elevation) for WebODM GCP">WebODM GCP:</span>
+                <span class="font-mono text-slate-600 bg-slate-100 px-1.5 py-1 rounded cursor-pointer hover:bg-slate-200 border border-slate-200 transition-colors" onclick="navigator.clipboard.writeText('${p3301.x.toFixed(2)} ${p3301.y.toFixed(2)}${elevText}')" title="Click to copy for WebODM">
+                    ${p3301.x.toFixed(2)} ${p3301.y.toFixed(2)}${elevText}
+                </span>
+            </div>
+        </div>
+    `;
+
     if (feature) {
         let height = feature.korgus_m || feature.korgus || feature.suhteline_korgus || feature.absoluutne_korgus;
         const voltage = feature.nimipinge;
@@ -180,6 +188,7 @@ async function showInfoPopup(latlng, preLoadedFeature = null) {
                     ${estimatedInfo}
                     ${zonesHtml}
                     ${windHtml}
+                    ${gcpHtml}
                     ${droneMapBtn}
                 </div>
             `);
@@ -192,6 +201,7 @@ async function showInfoPopup(latlng, preLoadedFeature = null) {
                     ${tempHtml}
                     ${zonesHtml}
                     ${windHtml}
+                    ${gcpHtml}
                     ${droneMapBtn}
                 </div>
             `);
