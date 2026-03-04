@@ -136,9 +136,6 @@ async function showInfoPopup(latlng, preLoadedFeature = null) {
             </div>
         ` : '';
 
-    const droneMapBtn = `<div class="mt-3 pt-2 border-t border-slate-200 flex gap-2">
-            <a href="https://utm.eans.ee/" target="_blank" class="flex-1 text-center bg-slate-800 text-white text-[9px] font-bold py-1.5 rounded uppercase tracking-tighter shadow">Drone Map</a>
-        </div>`;
 
     let elevText = groundElevation !== null ? ' ' + groundElevation.toFixed(2) : '';
     const gcpHtml = `
@@ -181,7 +178,7 @@ async function showInfoPopup(latlng, preLoadedFeature = null) {
         popup.setContent(`
                 <div class="p-1 max-h-[70vh] overflow-y-auto">
                     <b class="text-slate-800 text-sm border-b border-slate-200 block pb-1 mb-2 capitalize font-bold">${typeName}</b>
-                    ${height ? `<div class="flex justify-between items-center mb-1 gap-4 text-xs"><span>Tower Height:</span><span class="text-green-600 font-bold text-lg">~${height} m</span></div>` : ''}
+                    ${height ? `<div class="flex justify-between items-center mb-1 gap-4 text-xs"><span>Structure Height:</span><span class="text-green-600 font-bold text-lg">~${height} m</span></div>` : ''}
                     ${voltage ? `<div class="flex justify-between items-center mb-1 gap-4 text-xs"><span>Voltage:</span><span class="text-amber-500 font-bold">${voltage} kV</span></div>` : ''}
                     ${elevHtml}
                     ${tempHtml}
@@ -189,7 +186,6 @@ async function showInfoPopup(latlng, preLoadedFeature = null) {
                     ${zonesHtml}
                     ${windHtml}
                     ${gcpHtml}
-                    ${droneMapBtn}
                 </div>
             `);
     } else {
@@ -202,7 +198,6 @@ async function showInfoPopup(latlng, preLoadedFeature = null) {
                     ${zonesHtml}
                     ${windHtml}
                     ${gcpHtml}
-                    ${droneMapBtn}
                 </div>
             `);
     }
