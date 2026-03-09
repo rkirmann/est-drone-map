@@ -59,6 +59,25 @@ function initARButton() {
 function createARScene() {
     if (arSceneCreated) return;
     
+    // Force camera request upfront to ensure iOS/Android prompt triggers properly
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+            .then(stream => {
+                // We just needed permission, we can stop this temporary stream 
+                // because AR.js will create its own managed stream
+                stream.getTracks().forEach(track => track.stop());
+                proceedWithARLoad();
+            })
+            .catch(err => {
+                alert("Camera permission is required for AR view. Please allow it in your browser settings.");
+                arViewActive = false;
+            });
+    } else {
+        proceedWithARLoad();
+    }
+}
+
+function proceedWithARLoad() {
     // Create loading indicator
     const loadingUI = document.createElement('div');
     loadingUI.id = 'arLoadingUI';
@@ -66,7 +85,7 @@ function createARScene() {
     loadingUI.innerHTML = `
         <div class="spinner mb-4 w-12 h-12 border-4 border-slate-700 border-t-indigo-500 rounded-full animate-spin"></div>
         <h2 class="text-xl font-bold">Starting AR Camera...</h2>
-        <p class="text-slate-400 mt-2 max-w-sm text-center">Please allow camera and GPS permissions if prompted. Stand safely outside with a clear view of the sky.</p>
+        <p class="text-slate-400 mt-2 max-w-sm text-center">Stand safely outside. Look around to calibrate compass.</p>
         <button id="cancelARLoadBtn" class="mt-8 px-6 py-2 bg-slate-800 hover:bg-slate-700 rounded-full font-bold">Cancel</button>
     `;
     document.body.appendChild(loadingUI);
@@ -82,6 +101,9 @@ function createARScene() {
     document.head.appendChild(aframeScript);
     
     aframeScript.onload = () => {
+        // We need a custom component to draw lines between GPS coordinate entities
+        setupGpsLineComponent();
+        
         // Load AR.js Location module
         const arjsScript = document.createElement('script');
         arjsScript.src = 'https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar-nft.js';
@@ -91,12 +113,63 @@ function createARScene() {
     };
 }
 
+function setupGpsLineComponent() {
+    if (typeof AFRAME === 'undefined') return;
+    
+    // Custom A-Frame component to draw a line between this GPS entity and another GPS entity
+    AFRAME.registerComponent('gps-line', {
+        schema: {
+            color: { default: '#f59e0b' },
+            width: { default: 5 },
+            nextLat: { type: 'number' },
+            nextLng: { type: 'number' },
+            nextAlt: { type: 'number', default: 0 }
+        },
+        init: function () {
+            // Wait for both the camera and the GPS system to initialize
+            this.el.sceneEl.addEventListener('gps-camera-update-position', () => {
+                this.updateLine();
+            });
+            // Update line geometry relative to camera on every frame tick is heavy,
+            // AR.js 'gps-entity-place' handles moving the parent entity wrapper.
+            // We just need to draw a local line from 0,0,0 to the relative position of the NEXT point.
+        },
+        updateLine: function() {
+            // Converting lat/lng differences to local meters (rough equirectangular projection for speed)
+            const currentLat = this.el.getAttribute('gps-entity-place').latitude;
+            const currentLng = this.el.getAttribute('gps-entity-place').longitude;
+            const currentAlt = parseFloat(this.el.getAttribute('position').y) || 0;
+            
+            // Earth radius in meters
+            const R = 6378137; 
+            
+            // Offsets in meters from CURRENT point to NEXT point
+            const dLat = (this.data.nextLat - currentLat) * (Math.PI / 180);
+            const dLng = (this.data.nextLng - currentLng) * (Math.PI / 180);
+            
+            const dx = R * dLng * Math.cos(currentLat * Math.PI / 180); // East/West (X axis)
+            const dy = this.data.nextAlt - currentAlt;                 // Up/Down (Y axis)
+            const dz = - (R * dLat);                                   // North/South (Z axis, negative is North in WebGL)
+            
+            // Draw standard A-Frame line from local origin (0,0,0) to calculated offset (dx,dy,dz)
+            this.el.setAttribute('line', {
+                start: '0 0 0',
+                end: `${dx} ${dy} ${dz}`,
+                color: this.data.color,
+                width: this.data.width // Note: Line width over 1px often unsupported by browser WebGL on Windows, but works on some mobile
+            });
+            
+            // For thicker lines that work everywhere, we could draw a cylinder across dx,dy,dz, 
+            // but A-Frame lines are usually sufficient for path preview
+        }
+    });
+}
+
 function setupARContainer() {
     if (!document.getElementById('arLoadingUI')) return; // Was cancelled
     
     const arContainer = document.createElement('div');
     arContainer.id = 'arContainer';
-    // Style forces it to cover the entire viewport identically to full screen
     arContainer.setAttribute('style', 'position: fixed; inset: 0; z-index: 9999; width: 100vw; height: 100vh; background: black; overflow: hidden;');
     
     // Close button
@@ -111,19 +184,19 @@ function setupARContainer() {
     const helpText = document.createElement('div');
     helpText.className = 'absolute bottom-8 left-0 right-0 z-[10001] text-center pointer-events-none';
     helpText.setAttribute('style', 'position: absolute; bottom: 2rem; width: 100%; z-index: 10001;');
-    helpText.innerHTML = '<span class="bg-black/60 text-white px-4 py-2 rounded-full backdrop-blur text-sm font-bold shadow opacity-80">Look towards the planned flight area</span>';
+    helpText.innerHTML = '<span class="bg-black/60 text-white px-4 py-2 rounded-full backdrop-blur text-sm font-bold shadow opacity-80">Look around to calibrate GPS</span>';
     arContainer.appendChild(helpText);
     
-    // A-Frame Scene built using template literals
+    // AR.js scene. Crucial that 'sourceType: webcam' is explicit
     const sceneStr = `
         <a-scene 
             vr-mode-ui="enabled: false"
             embedded
-            arjs="sourceType: webcam; debugUIEnabled: false;">
+            renderer="antialias: true; alpha: true"
+            arjs="sourceType: webcam; debugUIEnabled: false; videoTexture: true;">
             
-            <a-camera gps-camera rotation-reader></a-camera>
+            <a-camera gps-camera="minDistance: 1; positionMinAccuracy: 100; maxDistance: 3000" rotation-reader></a-camera>
             
-            <!-- Where we will spawn the waypoints -->
             <a-entity id="arFlightPath"></a-entity>
             
         </a-scene>
@@ -135,11 +208,10 @@ function setupARContainer() {
     arSceneCreated = true;
     renderARPath();
     
-    // Remove loading UI once camera feed is theoretically requesting
     setTimeout(() => {
         const loader = document.getElementById('arLoadingUI');
         if (loader) loader.remove();
-    }, 1500);
+    }, 2000);
 }
 
 function renderARPath() {
@@ -148,55 +220,65 @@ function renderARPath() {
     const pathEntity = document.getElementById('arFlightPath');
     if (!pathEntity) return;
     
-    // Clear old path
     pathEntity.innerHTML = '';
     
-    // In actual WebXR location AR, rendering continuous custom 3D lines across kilometers natively is complex.
-    // The easiest and most performant AR approach is rendering large glowing "Waypoints" at each coordinate.
-    
-    currentLawnmowerPath.forEach((pt, i) => {
+    // Render lines using the custom gps-line component
+    for (let i = 0; i < currentLawnmowerPath.length - 1; i++) {
+        const pt = currentLawnmowerPath[i];
+        const nextPt = currentLawnmowerPath[i+1];
+        
         const isStart = i === 0;
-        const isEnd = i === currentLawnmowerPath.length - 1;
+        let color = '#f59e0b'; // Path color amber
         
-        let color = '#f59e0b'; // Amber
-        let scale = '2 2 2';
-        let label = (i + 1).toString();
+        if (isStart) color = '#22c55e'; // Green start leg
         
-        if (isStart) {
-            color = '#22c55e'; // Green
-            scale = '3 3 3';
-            label = 'START';
-        } else if (isEnd) {
-            color = '#ef4444'; // Red
-            scale = '3 3 3';
-            label = 'END';
-        }
-        
-        // The container linking real-world GPS to A-Frame space
         const node = document.createElement('a-entity');
         node.setAttribute('gps-entity-place', `latitude: ${pt.lat}; longitude: ${pt.lng}`);
+        node.setAttribute('position', `0 ${pt.alt} 0`);
         
-        // The visible sphere/marker
-        const marker = document.createElement('a-sphere');
-        marker.setAttribute('radius', isStart || isEnd ? '1.5' : '1'); 
-        marker.setAttribute('color', color);
-        marker.setAttribute('opacity', '0.8');
-        // Standardize Y Up coordinate relative to standard user eye-level height (assumed building height + takeoff)
-        marker.setAttribute('position', `0 ${pt.alt} 0`);
+        // Draw the line from this node to the next
+        node.setAttribute('gps-line', `nextLat: ${nextPt.lat}; nextLng: ${nextPt.lng}; nextAlt: ${nextPt.alt}; color: ${color}; width: 10;`);
         
-        // The floating text
-        const text = document.createElement('a-text');
-        text.setAttribute('value', label);
-        text.setAttribute('align', 'center');
-        text.setAttribute('scale', '15 15 15'); // Text needs to be scaled massively in AR
-        text.setAttribute('position', `0 ${parseFloat(pt.alt) + 3} 0`); // Float 3 meters above sphere
-        text.setAttribute('look-at', '[gps-camera]'); // Always face user
+        // Add tiny markers at corners just to help visualization from afar
+        const cornerMarker = document.createElement('a-sphere');
+        cornerMarker.setAttribute('radius', '0.5'); 
+        cornerMarker.setAttribute('color', i === 0 ? '#22c55e' : '#f59e0b');
+        node.appendChild(cornerMarker);
         
-        // Add components to DOM
-        node.appendChild(marker);
-        node.appendChild(text);
+        // Add START text
+        if (isStart) {
+            const text = document.createElement('a-text');
+            text.setAttribute('value', 'START');
+            text.setAttribute('align', 'center');
+            text.setAttribute('scale', '10 10 10'); 
+            text.setAttribute('position', '0 2 0'); 
+            text.setAttribute('look-at', '[gps-camera]'); 
+            node.appendChild(text);
+        }
+        
         pathEntity.appendChild(node);
-    });
+    }
+    
+    // Add END point marker
+    const endP = currentLawnmowerPath[currentLawnmowerPath.length - 1];
+    const endNode = document.createElement('a-entity');
+    endNode.setAttribute('gps-entity-place', `latitude: ${endP.lat}; longitude: ${endP.lng}`);
+    endNode.setAttribute('position', `0 ${endP.alt} 0`);
+    
+    const endMarker = document.createElement('a-sphere');
+    endMarker.setAttribute('radius', '0.8'); 
+    endMarker.setAttribute('color', '#ef4444');
+    
+    const endText = document.createElement('a-text');
+    endText.setAttribute('value', 'END');
+    endText.setAttribute('align', 'center');
+    endText.setAttribute('scale', '10 10 10'); 
+    endText.setAttribute('position', '0 2 0'); 
+    endText.setAttribute('look-at', '[gps-camera]'); 
+    
+    endNode.appendChild(endMarker);
+    endNode.appendChild(endText);
+    pathEntity.appendChild(endNode);
 }
 
 function toggleARView() {
@@ -211,7 +293,6 @@ function toggleARView() {
                 arContainer.hidden = false;
                 arContainer.style.display = 'block';
                 renderARPath();
-                // Safari iOS WebGL resize hack
                 window.dispatchEvent(new Event('resize'));
             }
         }
@@ -220,10 +301,6 @@ function toggleARView() {
         if (arContainer) {
             arContainer.style.display = 'none';
             arContainer.hidden = true;
-            
-            // To properly stop the camera and save battery entirely when "X" is clicked:
-            // The safest route is blowing away the A-Frame DOM and AR.js video feeds entirely.
-            // A-Frame binds heavily to document level events.
             
             const videos = document.querySelectorAll('video');
             videos.forEach(v => {
@@ -241,10 +318,8 @@ function toggleARView() {
     }
 }
 
-// Auto-initialize when file loads via DOMContentLoaded
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', initARButton);
 } else {
-    // If dynamically injected late
     setTimeout(initARButton, 500);
 }
