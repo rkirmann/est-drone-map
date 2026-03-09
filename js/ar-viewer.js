@@ -3,6 +3,7 @@
 
 let arViewActive = false;
 let arSceneCreated = false;
+let arScriptsLoaded = false;
 
 function initARButton() {
     const btnExportKMZ = document.getElementById('btnExportKMZ');
@@ -99,6 +100,11 @@ function proceedWithARLoad() {
         document.getElementById('arLoadingUI').remove();
         arViewActive = false;
     };
+
+    if (arScriptsLoaded) {
+        setupARContainer();
+        return;
+    }
 
     // Load A-Frame
     const aframeScript = document.createElement('script');
@@ -207,6 +213,7 @@ function setupGpsLineComponentAndScene() {
         }
     });
 
+    arScriptsLoaded = true;
     // Now that the component is registered, build the physical scene
     setupARContainer();
 }
@@ -226,6 +233,17 @@ function setupARContainer() {
     closeBtn.onclick = toggleARView;
     arContainer.appendChild(closeBtn);
 
+    // Altitude Adjustment Slider
+    const altitudeUI = document.createElement('div');
+    altitudeUI.className = 'absolute bottom-8 left-1/2 -translate-x-1/2 z-[10001] bg-black/60 rounded-xl p-4 backdrop-blur shadow-xl w-[90%] max-w-sm flex items-center space-x-4';
+    altitudeUI.setAttribute('style', 'position: absolute; bottom: 2rem; left: 50%; transform: translateX(-50%); z-index: 10001; width: 85%; max-width: 350px;');
+    altitudeUI.innerHTML = `
+        <label for="arAltOffset" class="text-white text-xs font-bold whitespace-nowrap">Height Adjust</label>
+        <input type="range" id="arAltOffset" min="-20" max="20" step="0.5" value="-1.5" class="w-full accent-indigo-500">
+        <span id="arAltValue" class="text-white text-xs font-mono font-bold whitespace-nowrap">-1.5m</span>
+    `;
+    arContainer.appendChild(altitudeUI);
+
     // AR.js scene. Crucial that 'sourceType: webcam' is explicit
     const sceneStr = `
         <a-scene 
@@ -237,13 +255,30 @@ function setupARContainer() {
             <a-camera gps-camera="minDistance: 1; positionMinAccuracy: 100; maxDistance: 3000" rotation-reader></a-camera>
             
             <!-- Where we attach the custom line generator -->
-            <a-entity id="arFlightPath"></a-entity>
+            <a-entity id="arFlightPathWrap" position="0 -1.5 0">
+                <a-entity id="arFlightPath"></a-entity>
+            </a-entity>
             
         </a-scene>
     `;
 
     arContainer.insertAdjacentHTML('beforeend', sceneStr);
     document.body.appendChild(arContainer);
+
+    // Slider Logic
+    setTimeout(() => {
+        const slider = document.getElementById('arAltOffset');
+        const display = document.getElementById('arAltValue');
+        const wrapper = document.getElementById('arFlightPathWrap');
+
+        if (slider && display && wrapper) {
+            slider.addEventListener('input', (e) => {
+                const val = parseFloat(e.target.value);
+                display.innerText = (val > 0 ? '+' : '') + val.toFixed(1) + 'm';
+                wrapper.setAttribute('position', `0 ${val} 0`);
+            });
+        }
+    }, 500);
 
     arSceneCreated = true;
     renderARPath();
