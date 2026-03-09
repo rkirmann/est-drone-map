@@ -118,7 +118,8 @@ function proceedWithARLoad() {
 function setupGpsLineComponentAndScene() {
     if (typeof AFRAME === 'undefined') return;
 
-    // Custom component to draw physical 3D cylinders (thick lines) between GPS points
+    // Custom component to draw physical lines using standard A-Frame line component
+    // connected across all GPS points in sequence
     AFRAME.registerComponent('gps-poly-line', {
         schema: {
             pathJSON: { type: 'string', default: '[]' },
@@ -130,14 +131,13 @@ function setupGpsLineComponentAndScene() {
             this.el.sceneEl.addEventListener('gps-camera-update-position', () => {
                 if (!this.drawn) this.drawLines();
             });
-            // Try drawing immediately just in case GPS lock is fast or mocked
+            // Try drawing immediately just in case GPS lock is fast
             this.drawLines();
         },
         drawLines: function () {
             if (this.drawn || this.pathData.length < 2) return;
 
-            // To draw contiguous AR.js lines without breaking, we anchor a parent container at Point 0
-            // and mathematically calculate the local X/Z offsets of all subsequent points
+            // We anchor a parent container at Point 0
             const anchorLat = this.pathData[0].lat;
             const anchorLng = this.pathData[0].lng;
             const R = 6378137; // Earth radius
@@ -145,84 +145,59 @@ function setupGpsLineComponentAndScene() {
             this.el.setAttribute('gps-entity-place', `latitude: ${anchorLat}; longitude: ${anchorLng}`);
             this.el.setAttribute('position', '0 0 0'); // Origin
 
-            // Generate standard tubes for each leg
-            for (let i = 0; i < this.pathData.length - 1; i++) {
-                const pt1 = this.pathData[i];
-                const pt2 = this.pathData[i + 1];
+            // Keep track of previous coordinate to draw lines between them
+            let prevCoords = { x: 0, y: parseFloat(this.pathData[0].alt) || 0, z: 0 };
 
-                // Calc pt1 offset from anchor
-                const dLat1 = (pt1.lat - anchorLat) * (Math.PI / 180);
-                const dLng1 = (pt1.lng - anchorLng) * (Math.PI / 180);
-                const x1 = R * dLng1 * Math.cos(anchorLat * Math.PI / 180);
-                const y1 = parseFloat(pt1.alt) || 0;
-                const z1 = - (R * dLat1);
+            for (let i = 1; i < this.pathData.length; i++) {
+                const pt = this.pathData[i];
 
-                // Calc pt2 offset from anchor
-                const dLat2 = (pt2.lat - anchorLat) * (Math.PI / 180);
-                const dLng2 = (pt2.lng - anchorLng) * (Math.PI / 180);
-                const x2 = R * dLng2 * Math.cos(anchorLat * Math.PI / 180);
-                const y2 = parseFloat(pt2.alt) || 0;
-                const z2 = - (R * dLat2);
+                // Calculate offset from anchor
+                const dLat = (pt.lat - anchorLat) * (Math.PI / 180);
+                const dLng = (pt.lng - anchorLng) * (Math.PI / 180);
+                const x = R * dLng * Math.cos(anchorLat * Math.PI / 180);
+                const y = parseFloat(pt.alt) || 0;
+                const z = - (R * dLat);
 
-                // Draw a simple 3D tube/cylinder between the two points
-                // Three.js math to position a cylinder exactly connecting two local coordinates
-                const dx = x2 - x1;
-                const dy = y2 - y1;
-                const dz = z2 - z1;
-                const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+                const currentCoords = { x, y, z };
 
-                const tube = document.createElement('a-cylinder');
-                // Center point of the line segment
-                tube.setAttribute('position', `${x1 + dx / 2} ${y1 + dy / 2} ${z1 + dz / 2}`);
+                // Create a line segment entity
+                const lineSegment = document.createElement('a-entity');
 
-                // Math to Orient Cylinder
-                // We use look-at to point the cylinder, then rotate it 90deg on X to lie flat
-                const targetPoint = `${x2} ${y2} ${z2}`;
-
-                // Color formatting
                 let color = '#f59e0b'; // solid amber
-                let radius = '0.3'; // 30cm thick line
+                let width = 15; // px width
 
                 // If it's the lead-in staging leg
-                if (i === 0) {
+                if (i === 1) {
                     color = '#22c55e'; // green
-                    radius = '0.2';
+                    width = 10;
                 }
 
-                tube.setAttribute('radius', radius);
-                tube.setAttribute('height', distance.toString());
-                tube.setAttribute('color', color);
-                tube.setAttribute('opacity', '0.9');
-                tube.setAttribute('shader', 'flat'); // removes shading for flat glowing look
+                // Draw standard A-Frame native line
+                // The syntax is line="start: x y z; end: x y z; color: color"
+                lineSegment.setAttribute('line', {
+                    start: `${prevCoords.x} ${prevCoords.y} ${prevCoords.z}`,
+                    end: `${currentCoords.x} ${currentCoords.y} ${currentCoords.z}`,
+                    color: color
+                });
 
-                // Wrap in entity to handle rotations perfectly
-                const wrapper = document.createElement('a-entity');
-                wrapper.setAttribute('position', `${x1 + dx / 2} ${y1 + dy / 2} ${z1 + dz / 2}`);
-                wrapper.setAttribute('look-at', targetPoint); // points -Z axis toward target
+                // Add a tiny connecting joint to hide gaps between sharp turns
+                if (i > 1) {
+                    const joint = document.createElement('a-sphere');
+                    joint.setAttribute('position', `${prevCoords.x} ${prevCoords.y} ${prevCoords.z}`);
+                    joint.setAttribute('radius', '0.2');
+                    joint.setAttribute('color', '#f59e0b');
+                    joint.setAttribute('shader', 'flat');
+                    this.el.appendChild(joint);
+                }
 
-                // Cylinder defaults to facing UP (Y). Rotate it 90 degrees down onto Z.
-                const innerTube = document.createElement('a-cylinder');
-                innerTube.setAttribute('radius', radius);
-                innerTube.setAttribute('height', distance.toString());
-                innerTube.setAttribute('color', color);
-                innerTube.setAttribute('opacity', '0.9');
-                innerTube.setAttribute('shader', 'flat');
-                innerTube.setAttribute('rotation', '90 0 0'); // tilt forward
+                this.el.appendChild(lineSegment);
 
-                wrapper.appendChild(innerTube);
-                this.el.appendChild(wrapper);
+                prevCoords = currentCoords;
             }
 
-            // Draw a red END marker sphere just to mark completion
-            const endPt = this.pathData[this.pathData.length - 1];
-            const dLatT = (endPt.lat - anchorLat) * (Math.PI / 180);
-            const dLngT = (endPt.lng - anchorLng) * (Math.PI / 180);
-            const ex = R * dLngT * Math.cos(anchorLat * Math.PI / 180);
-            const ey = parseFloat(endPt.alt) || 0;
-            const ez = - (R * dLatT);
-
+            // Draw a red END marker sphere
             const endMarker = document.createElement('a-sphere');
-            endMarker.setAttribute('position', `${ex} ${ey} ${ez}`);
+            endMarker.setAttribute('position', `${prevCoords.x} ${prevCoords.y} ${prevCoords.z}`);
             endMarker.setAttribute('radius', '1.5');
             endMarker.setAttribute('color', '#ef4444');
             endMarker.setAttribute('shader', 'flat');
@@ -231,13 +206,6 @@ function setupGpsLineComponentAndScene() {
             this.drawn = true;
         }
     });
-
-    // Also load look-at component which we use to aim the cylinders
-    const lookatScript = document.createElement('script');
-    lookatScript.src = 'https://unpkg.com/aframe-look-at-component@0.8.0/dist/aframe-look-at-component.min.js';
-    document.head.appendChild(lookatScript);
-
-    lookatScript.onload = setupARContainer;
 }
 
 function setupARContainer() {
