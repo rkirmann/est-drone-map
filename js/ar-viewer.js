@@ -206,6 +206,9 @@ function setupGpsLineComponentAndScene() {
             this.drawn = true;
         }
     });
+
+    // Now that the component is registered, build the physical scene
+    setupARContainer();
 }
 
 function setupARContainer() {
