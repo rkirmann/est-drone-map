@@ -106,24 +106,48 @@
             const bounds = map.getBounds();
             const url = `https://fotoladu.maaamet.ee/paring_db_cluster.php?l=avaleht&a_lat=${bounds.getSouthWest().lat}&a_lng=${bounds.getSouthWest().lng}&u_lat=${bounds.getNorthEast().lat}&u_lng=${bounds.getNorthEast().lng}&m=${zoom}`;
 
-            // Maa-amet doesn't send CORS headers, using corsproxy.io here
-            const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(url)}`;
+            // Maa-amet doesn't send CORS headers, using multi-proxy strategy here
+            let data = null;
 
-            if (currentAerofotoRequest) {
-                currentAerofotoRequest.abort();
+            try {
+                // Primary proxy strategy: allorigins.win
+                const allOriginsUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
+                const res = await fetch(allOriginsUrl, { signal: controller.signal });
+
+                if (res.ok) {
+                    const wrapper = await res.json();
+                    if (wrapper.contents) {
+                        data = JSON.parse(wrapper.contents);
+                    }
+                }
+            } catch (e) {
+                if (e.name !== 'AbortError') {
+                    console.warn("Primary proxy (allorigins) for aerofoto failed, falling back...", e);
+                } else {
+                    return; // Request was aborted
+                }
             }
 
-            const controller = new AbortController();
-            currentAerofotoRequest = controller;
+            // Fallback strategy if allorigins fails
+            if (!data) {
+                try {
+                    const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(url)}`;
+                    const res = await fetch(proxyUrl, { signal: controller.signal });
+                    if (res.ok) {
+                        data = await res.json();
+                    }
+                } catch (e) {
+                    if (e.name !== 'AbortError') {
+                        console.error('All aerofoto proxy strategies failed', e);
+                    }
+                    return;
+                }
+            }
 
-            fetch(proxyUrl, { signal: controller.signal })
-                .then(r => r.json())
-                .then(data => {
-                    if (currentAerofotoRequest !== controller) return;
-                    if (!data || !data.features) return;
+            if (currentAerofotoRequest !== controller || !data || !data.features) return;
 
-                    const newMarkers = [];
-                    data.features.forEach(feature => {
+            const newMarkers = [];
+            data.features.forEach(feature => {
                         const id = feature.properties.id;
                         if (!aerofotoIdList.includes(id)) {
                             aerofotoIdList.push(id);

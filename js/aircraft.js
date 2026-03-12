@@ -28,17 +28,44 @@
             // Use FR24 bounds format: maxLat,minLat,minLon,maxLon
             // Add a cache-buster (_cb) to prevent aggressive mobile browser caching of the proxy response
             const frUrl = `https://data-cloud.flightradar24.com/zones/fcgi/boxes.json?bounds=${lamax},${lamin},${lomin},${lomax}&faa=1&satellite=1&mlat=1&flarm=1&adsb=1&gnd=1&vehicles=1&gliders=1&estimated=1&_cb=${Date.now()}`;
-            const proxiedFrUrl = `https://corsproxy.io/?${encodeURIComponent(frUrl)}`;
+
+            let frData = null;
 
             try {
-                // Ensure mobile browsers unconditionally skip their internal HTTP cache mechanism
-                const res = await fetch(proxiedFrUrl, {
-                    cache: 'no-store',
-                    headers: { 'Pragma': 'no-cache', 'Cache-Control': 'no-cache' }
-                });
-                if (!res.ok) return;
-                const frData = await res.json();
+                // Primary proxy strategy: allorigins.win (wrapped JSON bypasses Cloudflare/WAF more often)
+                const allOriginsUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(frUrl)}`;
+                const res = await fetch(allOriginsUrl, { cache: 'no-store' });
 
+                if (res.ok) {
+                    const wrapper = await res.json();
+                    if (wrapper.contents) {
+                        frData = JSON.parse(wrapper.contents);
+                    }
+                }
+            } catch (e) {
+                console.warn("Primary proxy (allorigins) failed, falling back...", e);
+            }
+
+            // Fallback strategy if allorigins fails
+            if (!frData) {
+                try {
+                    const proxiedFrUrl = `https://corsproxy.io/?${encodeURIComponent(frUrl)}`;
+                    const res = await fetch(proxiedFrUrl, {
+                        cache: 'no-store',
+                        headers: { 'Pragma': 'no-cache', 'Cache-Control': 'no-cache' }
+                    });
+                    if (res.ok) {
+                        frData = await res.json();
+                    }
+                } catch (e) {
+                    console.error("All aircraft proxy strategies failed", e);
+                    return;
+                }
+            }
+
+            if (!frData) return;
+
+            try {
                 // aircraftLayer.clearLayers();
                 let hasCriticalThreats = false;
                 let newlySeenKeys = new Set();
