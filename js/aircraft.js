@@ -32,30 +32,28 @@
             let frData = null;
 
             try {
-                // Primary proxy strategy: allorigins.win (wrapped JSON bypasses Cloudflare/WAF more often)
-                const allOriginsUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(frUrl)}`;
-                const res = await fetch(allOriginsUrl, { cache: 'no-store' });
+                // Primary proxy strategy: Custom Cloudflare Worker
+                const proxyUrl = `${CONFIG_PROXY_URL}?url=${encodeURIComponent(frUrl)}`;
+                const res = await fetch(proxyUrl, { cache: 'no-store' });
 
                 if (res.ok) {
-                    const wrapper = await res.json();
-                    if (wrapper.contents) {
-                        frData = JSON.parse(wrapper.contents);
-                    }
+                    frData = await res.json();
                 }
             } catch (e) {
-                console.warn("Primary proxy (allorigins) failed, falling back...", e);
+                console.warn("Primary custom proxy for aircraft failed, falling back...", e);
             }
 
-            // Fallback strategy if allorigins fails
+            // Fallback strategy if custom proxy fails
             if (!frData) {
                 try {
-                    const proxiedFrUrl = `https://corsproxy.io/?${encodeURIComponent(frUrl)}`;
-                    const res = await fetch(proxiedFrUrl, {
-                        cache: 'no-store',
-                        headers: { 'Pragma': 'no-cache', 'Cache-Control': 'no-cache' }
-                    });
+                    const allOriginsUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(frUrl)}`;
+                    const res = await fetch(allOriginsUrl, { cache: 'no-store' });
+
                     if (res.ok) {
-                        frData = await res.json();
+                        const wrapper = await res.json();
+                        if (wrapper.contents) {
+                            frData = JSON.parse(wrapper.contents);
+                        }
                     }
                 } catch (e) {
                     console.error("All aircraft proxy strategies failed", e);

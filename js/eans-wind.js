@@ -22,10 +22,12 @@
                 eansLayer.addTo(map);
                 if (eansLayer.getLayers().length === 0) {
                     const loadingPopup = L.popup().setLatLng(map.getCenter()).setContent('<div class="loading p-2"><div class="spinner"></div><span>Downloading Zones...</span></div>').openOn(map);
-                    // Open CORS for this API usually so we don't need a proxy, but let's use it just in case like before.
+                    
                     const url = 'https://utm.eans.ee/avm/utm/uas.geojson';
+                    const proxyUrl = `${CONFIG_PROXY_URL}?url=${encodeURIComponent(url)}`;
+                    
                     try {
-                        const res = await fetch(url);
+                        const res = await fetch(proxyUrl);
                         const data = await res.json();
 
                         L.geoJSON(data, {

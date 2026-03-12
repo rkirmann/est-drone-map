@@ -91,7 +91,7 @@
             }
         }
 
-        function updateAerofoto() {
+        async function updateAerofoto() {
             if (!map.hasLayer(aerofotoLayer)) return;
 
             const zoom = Math.round(map.getZoom());
@@ -106,35 +106,35 @@
             const bounds = map.getBounds();
             const url = `https://fotoladu.maaamet.ee/paring_db_cluster.php?l=avaleht&a_lat=${bounds.getSouthWest().lat}&a_lng=${bounds.getSouthWest().lng}&u_lat=${bounds.getNorthEast().lat}&u_lng=${bounds.getNorthEast().lng}&m=${zoom}`;
 
-            // Maa-amet doesn't send CORS headers, using multi-proxy strategy here
-            let data = null;
+            const controller = new AbortController();
+            currentAerofotoRequest = controller;
 
             try {
-                // Primary proxy strategy: allorigins.win
-                const allOriginsUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
-                const res = await fetch(allOriginsUrl, { signal: controller.signal });
-
+                // Primary proxy strategy: Custom Cloudflare Worker
+                const proxyUrl = `${CONFIG_PROXY_URL}?url=${encodeURIComponent(url)}`;
+                const res = await fetch(proxyUrl, { signal: controller.signal });
                 if (res.ok) {
-                    const wrapper = await res.json();
-                    if (wrapper.contents) {
-                        data = JSON.parse(wrapper.contents);
-                    }
+                    data = await res.json();
                 }
             } catch (e) {
                 if (e.name !== 'AbortError') {
-                    console.warn("Primary proxy (allorigins) for aerofoto failed, falling back...", e);
+                    console.warn("Primary custom proxy failed, falling back to public ones...", e);
                 } else {
                     return; // Request was aborted
                 }
             }
 
-            // Fallback strategy if allorigins fails
+            // Fallback strategy if custom proxy fails
             if (!data) {
                 try {
-                    const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(url)}`;
-                    const res = await fetch(proxyUrl, { signal: controller.signal });
+                    const allOriginsUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
+                    const res = await fetch(allOriginsUrl, { signal: controller.signal });
+
                     if (res.ok) {
-                        data = await res.json();
+                        const wrapper = await res.json();
+                        if (wrapper.contents) {
+                            data = JSON.parse(wrapper.contents);
+                        }
                     }
                 } catch (e) {
                     if (e.name !== 'AbortError') {
@@ -213,12 +213,6 @@
 
                         aerofotoLayer.addLayers(newMarkers);
                     }
-                })
-                .catch(err => {
-                    if (err.name !== 'AbortError') {
-                        console.error('Failed to fetch aerofoto metadata', err);
-                    }
-                });
         }
 
         document.getElementById('aerofotoToggle').addEventListener('change', e => {
